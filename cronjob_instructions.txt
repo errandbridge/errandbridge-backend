@@ -1,0 +1,23 @@
+# Add this to your crontab to automate anomaly detection and alerting every hour
+# Edit your crontab with: crontab -e
+#
+# Example (runs at minute 0 every hour):
+#
+# 0 * * * * cd /Users/admin/Desktop/ErrandBridge\ 2/errandbridge-backend && \
+#   set -a && source .env && set +a && \
+#   /Users/admin/Desktop/ErrandBridge\ 2/.venv/bin/python export_prometheus_metrics.py && \
+#   /Users/admin/Desktop/ErrandBridge\ 2/.venv/bin/python train_latency_anomaly_model.py && \
+#   /Users/admin/Desktop/ErrandBridge\ 2/.venv/bin/python infer_and_alert_latency_anomaly.py
+#
+# This will:
+# - Export real Prometheus metrics
+# - Retrain the anomaly detection model
+# - Run inference and send alerts if anomalies are detected
+#
+# Make sure your .env file contains all required SMTP and alert variables.
+
+# Stripe $1 test charge (optional) - runs daily at 2:15 AM
+# Requires STRIPE_SECRET_KEY in .env (test key) and uses Stripe test payment method.
+# 15 2 * * * cd /Users/admin/Desktop/ErrandBridge\ 2/errandbridge-backend && \
+#   set -a && source .env && set +a && \
+#   /Users/admin/Desktop/ErrandBridge\ 2/.venv/bin/python scripts/stripe_test_charge.py --amount 1.00 --currency usd

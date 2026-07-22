@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+
+# Envs
+.venv/
+.env
+.env.*
+
+# Logs
+*.log
+
+# Local notes
+/docs/SES_SMTP_SETUP_LOCAL.md

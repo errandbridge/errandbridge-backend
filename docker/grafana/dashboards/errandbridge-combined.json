@@ -1,0 +1,222 @@
+{
+  "uid": "errandbridge-combined",
+  "title": "ErrandBridge Combined Dashboard",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "tags": [
+    "errandbridge"
+  ],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "API requests/sec",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_request_duration_highr_seconds_count{job=\"fastapi\"}[5m]))",
+          "legendFormat": "api"
+        }
+      ],
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "ML requests/sec",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job='ml'}[5m]))",
+          "legendFormat": "ml"
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "API latency p95 (seconds)",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_highr_seconds_bucket{job=\"fastapi\"}[5m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "ML latency p95 (seconds)",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_highr_seconds_bucket{job=\"ml\"}[5m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "Total Anomaly Alerts",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "anomaly_alerts_total",
+          "legendFormat": "Total Alerts",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 18
+      },
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "Anomaly Alerts Over Time",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "increase(anomaly_alerts_total[1h])",
+          "legendFormat": "Alerts/hour",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {},
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 18
+      },
+      "id": 6
+    },
+    {
+      "type": "timeseries",
+      "title": "API Latency (p95)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_highr_seconds_bucket{job=\"fastapi\"}[5m])) by (le))",
+          "legendFormat": "p95 Latency",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {},
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 24
+      },
+      "id": 7
+    },
+    {
+      "type": "stat",
+      "title": "Current API Latency (p95)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_highr_seconds_bucket{job=\"fastapi\"}[5m])) by (le))",
+          "legendFormat": "Current p95",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 18
+      },
+      "id": 8
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# Run this script every hour using cron for local automation
+# Edit your crontab with: crontab -e
+# Add the following line (adjust path as needed):
+#
+# 0 * * * * cd /Users/admin/Desktop/ErrandBridge\ 2/errandbridge-backend && \
+#   /Users/admin/Desktop/ErrandBridge\ 2/.venv/bin/python export_prometheus_metrics.py && \
+#   /Users/admin/Desktop/ErrandBridge\ 2/.venv/bin/python train_latency_anomaly_model.py && \
+#   ALERT_EMAIL="your-alert-email@example.com" SMTP_SERVER="your.smtp.server" /Users/admin/Desktop/ErrandBridge\ 2/.venv/bin/python infer_and_alert_latency_anomaly.py && \
+#   /Users/admin/Desktop/ErrandBridge\ 2/errandbridge-backend/.venv/bin/python scripts/send_pilot_job_reminders.py
+#
+# This will:
+# - Export real Prometheus metrics
+# - Retrain the anomaly detection model
+# - Run inference and send alerts if anomalies are detected
+#
+# Make sure to replace your email and SMTP server above.
+#
+# For redundancy, keep the GitHub Actions workflow enabled as well.

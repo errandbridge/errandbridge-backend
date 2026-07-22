@@ -1,0 +1,97 @@
+from sqlalchemy import Column, Integer, String, DateTime, Boolean
+from sqlalchemy.sql import func
+from database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    password_hash = Column(String, nullable=False)
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    is_email_verified = Column(Boolean, nullable=False, default=False)
+    email_otp_hash = Column(String, nullable=True)
+    email_otp_expires_at = Column(Integer, nullable=True)
+    email_otp_last_sent_at = Column(Integer, nullable=True)
+    email_otp_attempts = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Verification / onboarding metadata
+    id_verification_method = Column(String, nullable=True)  # e.g., "offline"
+    id_verification_status = Column(String, nullable=False, default="pending")
+    address_line1 = Column(String, nullable=True)
+    address_line2 = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    postal_code = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    address_verification_status = Column(String, nullable=False, default="pending")
+
+
+class Errand(Base):
+    __tablename__ = "errands"
+    id = Column(Integer, primary_key=True, index=True)
+    # Customer-facing reference number (unique, stable)
+    reference_number = Column(String, nullable=False, unique=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    note = Column(String, nullable=True)  # Added note field for extra information
+    # Product metadata
+    template_id = Column(String, nullable=True)
+    sensitivity = Column(String, nullable=True)
+    confirmation_sent_at = Column(Integer, nullable=True)
+    # Issue/Dispute reporting (customer-facing)
+    issue_reason = Column(String, nullable=True)
+    issue_notes = Column(String, nullable=True)
+    issue_reported_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Dispute workflow v2 (customer + admin)
+    # What the customer wants us to do (refund, redo, call me, etc.)
+    issue_preferred_resolution = Column(String, nullable=True)
+    # Admin lifecycle
+    issue_status = Column(String, nullable=True)  # e.g., "open", "in_review", "resolved", "rejected"
+    issue_resolved_at = Column(DateTime(timezone=True), nullable=True)
+    issue_resolution_notes = Column(String, nullable=True)
+
+    # (Optional) Evidence snapshot metadata captured at report time
+    issue_evidence_attachment_ids = Column(String, nullable=True)
+    pickup_location = Column(String, nullable=True)
+    dropoff_location = Column(String, nullable=True)
+    status = Column(String, default="pending")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    user_id = Column(Integer, nullable=False)
+
+
+class ErrandAttachment(Base):
+    __tablename__ = "errand_attachments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    errand_id = Column(Integer, nullable=False, index=True)
+    original_filename = Column(String, nullable=False)
+    stored_filename = Column(String, nullable=False, unique=True)
+    content_type = Column(String, nullable=True)
+    size_bytes = Column(Integer, nullable=False, default=0)
+    # Document workflow fields
+    label = Column(String, nullable=True)
+    review_status = Column(String, nullable=False, default="pending")
+    review_note = Column(String, nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    reviewed_by_user_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AttachmentShareLink(Base):
+    __tablename__ = "attachment_share_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    attachment_id = Column(Integer, nullable=False, index=True)
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    pin_hash = Column(String, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    uses = Column(Integer, nullable=False, default=0)
+    max_uses = Column(Integer, nullable=False, default=50)
+    created_by_user_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

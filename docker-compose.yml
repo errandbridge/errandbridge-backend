@@ -1,0 +1,108 @@
+services:
+  api:
+    build: .
+    # Dev server: keep reload, but only for code changes.
+    # Otherwise file writes (uploads/logs/csv/joblib) can trigger frequent reloads,
+    # causing brief connection refusals and apparent “logouts” in the frontend.
+    command: >
+      uvicorn main:app --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app
+      --reload-include "*.py"
+      --reload-exclude "*.log" --reload-exclude "*.csv" --reload-exclude "*.joblib"
+      --reload-exclude "uploads/*" --reload-exclude "__pycache__/*"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    ports:
+      - "8001:8000"
+    depends_on:
+      - db
+      # (Mailpit is optional and runs only when profile 'dev-mail' is enabled)
+    environment:
+      - PROMETHEUS_MULTIPROC_DIR=/tmp
+      - ADMIN_EMAILS=admin@errandbridge.com,oye@errandbridge.com,wole@errandbridge.com,ajoke@errandbridge.com,ade@errandbridge.com,privacy@errandbridge.com,dataprotection@errandbridge.com
+      - ELEVATED_ADMIN_EMAILS=ade@errandbridge.com
+      - DISABLE_EMAIL_CONFIRMATION=true
+
+      # Optional smoke-test OTP overrides (non-production only):
+      # - ALLOW_SMOKE_OTPS=true
+      # - SMOKE_OTP_CODE=123456
+      # - SMOKE_PASSWORD_RESET_OTP=123456
+      # - SMOKE_PASSWORD_CHANGE_OTP=123456
+
+  ml:
+    build:
+      context: .
+      dockerfile: ml/Dockerfile
+    command: uvicorn main:app --host 0.0.0.0 --port 8010 --reload
+    volumes:
+      - ./ml/app:/app
+    ports:
+      - "8011:8010"
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: errandbridge
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./docker/alert.rules.yml:/etc/prometheus/alert.rules.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+      - ml
+  grafana:
+    # Pin Grafana to avoid unexpected breaking changes from :latest.
+    image: grafana/grafana:12.3.1
+    restart: unless-stopped
+    ports:
+      # Expose Grafana on all host interfaces so it is reachable via localhost,
+      # LAN IPs, and any other IP assigned to this machine.
+      - "3001:3000"
+    environment:
+      # Avoid locking redirects to localhost so requests can work from whichever
+      # host/IP the user connected to.
+      - GF_SERVER_ENFORCE_DOMAIN=false
+      - GF_SERVER_SERVE_FROM_SUB_PATH=false
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      - prometheus
+
+  # Optional local SMTP server for development/testing.
+  # Use this to validate OTP emails without real SMTP credentials.
+  # Web UI: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    profiles: ["dev-mail"]
+    ports:
+      - "8025:8025" # web UI
+      - "1025:1025" # SMTP
+volumes:
+  pgdata:
+  grafana_data:
+  prometheus_data:

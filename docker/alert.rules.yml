@@ -1,0 +1,121 @@
+groups:
+  - name: errandbridge-service-health
+    rules:
+      - alert: ErrandBridgeAPIServiceDown
+        expr: up{job="fastapi"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ErrandBridge API is down"
+          description: "Prometheus cannot scrape the FastAPI service for more than 2 minutes."
+
+      - alert: ErrandBridgeMLServiceDown
+        expr: up{job="ml"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ErrandBridge ML service is down"
+          description: "Prometheus cannot scrape the ML service for more than 2 minutes."
+
+  - name: errandbridge-api-performance
+    rules:
+      - alert: ErrandBridgeAPIHighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{job="fastapi",status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="fastapi"}[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error rate"
+          description: "FastAPI 5xx error rate exceeded 5% for 5 minutes."
+
+      - alert: ErrandBridgeAPIHighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_request_duration_highr_seconds_bucket{job="fastapi"}[5m]))
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency"
+          description: "FastAPI p95 latency exceeded 1s for 10 minutes."
+
+  - name: errandbridge-business-events
+    rules:
+      - alert: ErrandBridgeStripeCheckoutErrors
+        expr: |
+          increase(eb_stripe_checkout_session_total{result="error"}[10m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stripe checkout session errors"
+          description: "Stripe checkout-session creation has failed at least once in the last 10 minutes."
+
+      - alert: ErrandBridgeStripeWebhookProcessingErrors
+        expr: |
+          increase(eb_stripe_webhook_events_total{result="error"}[10m]) > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Stripe webhook processing errors"
+          description: "Stripe webhook handler has thrown errors in the last 10 minutes. Payments may not be confirmed."
+
+      - alert: ErrandBridgeStripeWebhookInvalidPayloads
+        expr: |
+          increase(eb_stripe_webhook_events_total{result="invalid"}[10m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Invalid Stripe webhook payloads"
+          description: "Stripe webhook received invalid payloads/signatures in the last 10 minutes."
+
+      - alert: ErrandBridgeStripeWebhookSignatureInvalid
+        expr: |
+          increase(eb_stripe_webhook_signature_invalid_total[10m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Stripe webhook signature failures"
+          description: "Stripe webhook signature verification failed at least once in the last 10 minutes."
+
+      - alert: ErrandBridgeUploadFailures
+        expr: |
+          increase(eb_upload_errand_attachment_total{result="error"}[10m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Attachment upload failures"
+          description: "Errand attachment upload storage failed at least once in the last 10 minutes."
+
+      - alert: ErrandBridgeTrackingUpdateRejected
+        expr: |
+          increase(eb_tracking_update_total{result="rejected"}[10m]) > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tracking update rejections"
+          description: "More than 20 tracking update requests were rejected in the last 10 minutes. GPS tracking may be failing for pilots."
+
+      - alert: ErrandBridgeDelayDetected
+        expr: |
+          increase(eb_tracking_delay_detected_total[30m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Delay detected"
+          description: "At least one delay/stall was detected by tracking logic in the last 30 minutes."
