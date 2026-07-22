@@ -22,10 +22,22 @@ class HealthResult:
     detail: str | None = None
 
 
+def _smtp_host() -> str:
+    # SMTP_SERVER is a legacy variable still used by older scripts/task defs.
+    return (os.getenv("SMTP_HOST") or os.getenv("SMTP_SERVER") or "").strip()
+
+
+def _stdout_fallback_allowed() -> bool:
+    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
+    if env in {"prod", "production", "staging"}:
+        return os.getenv("SMTP_FALLBACK_TO_STDOUT", "").strip().lower() in {"1", "true", "yes"}
+    return True
+
+
 def _smtp_enabled() -> bool:
     # Treat SMTP as enabled only when the required essentials are set.
     # This prevents confusing "dev mode" fallbacks when values are missing.
-    host = (os.getenv("SMTP_HOST") or "").strip()
+    host = _smtp_host()
     from_email = (os.getenv("SMTP_FROM") or "").strip()
     username = (os.getenv("SMTP_USERNAME") or "").strip()
     password = os.getenv("SMTP_PASSWORD")
@@ -104,7 +116,7 @@ def smtp_health_check() -> HealthResult:
     if not _smtp_enabled():
         return HealthResult(ok=False, provider="smtp", detail="missing_config")
 
-    host = (os.getenv("SMTP_HOST") or "").strip()
+    host = _smtp_host()
     port = int(os.getenv("SMTP_PORT", "587"))
     username = (os.getenv("SMTP_USERNAME") or "").strip() or None
     password = os.getenv("SMTP_PASSWORD")
@@ -113,8 +125,22 @@ def smtp_health_check() -> HealthResult:
     timeout = int(os.getenv("SMTP_TIMEOUT_SECONDS", "10"))
 
     try:
+        force_ipv4 = os.getenv("SMTP_FORCE_IPV4", "true").strip().lower() in ("1", "true", "yes")
+        connect_host = host
+        if force_ipv4 and host:
+            try:
+                addr_info = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+                if addr_info:
+                    connect_host = addr_info[0][4][0]
+            except Exception as e:
+                print(f"[SMTP WARN] IPv4 resolution failed for {host}: {e}")
+
         with smtplib.SMTP(timeout=timeout) as server:
-            server.connect(host, port)
+            server.connect(connect_host, port)
+            # smtplib.starttls() uses server._host for SNI/hostname validation.
+            # When we connect manually (or connect to a resolved IPv4 address),
+            # keep the logical SMTP hostname here so TLS has a valid server name.
+            server._host = host
             server.ehlo_or_helo_if_needed()
             if use_tls:
                 server.starttls()
@@ -146,11 +172,7 @@ def send_email(*, to_email: str, subject: str, body_text: str) -> SendResult:
     if _smtp_enabled():
         result = _send_via_smtp(to_email=to_email, subject=subject, body_text=body_text)
         if not result.delivered:
-            env = (os.getenv("ENV") or "").strip().lower()
-            allow_fallback = env in {"local", "dev", "development", "test"} or (
-                os.getenv("SMTP_FALLBACK_TO_STDOUT", "").strip().lower() in {"1", "true", "yes"}
-            )
-            if allow_fallback:
+            if _stdout_fallback_allowed():
                 print("\n--- EMAIL (smtp failed; fallback stdout) ---")
                 print(f"TO: {to_email}")
                 print(f"SUBJECT: {subject}")
@@ -160,6 +182,8 @@ def send_email(*, to_email: str, subject: str, body_text: str) -> SendResult:
         return result
 
     if not _smtp_enabled():
+        if not _stdout_fallback_allowed():
+            return SendResult(delivered=False, provider="none", detail="missing_email_provider_config")
         # Dev mode: print so you can confirm OTP from container logs.
         print("\n--- EMAIL (dev mode) ---")
         print(f"TO: {to_email}")
@@ -233,7 +257,7 @@ def _send_via_graph(*, to_email: str, subject: str, body_text: str) -> SendResul
 
 
 def _send_via_smtp(*, to_email: str, subject: str, body_text: str) -> SendResult:
-    host = (os.getenv("SMTP_HOST") or "").strip()
+    host = _smtp_host()
     port = int(os.getenv("SMTP_PORT", "587"))
     username = (os.getenv("SMTP_USERNAME") or "").strip() or None
     password = os.getenv("SMTP_PASSWORD")

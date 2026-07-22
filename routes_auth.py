@@ -453,7 +453,7 @@ async def email_status() -> EmailStatusResponse:
 async def email_health() -> EmailHealthResponse:
     from emailer import graph_health_check, smtp_health_check, HealthResult
 
-    async def _run_with_timeout(func, timeout_seconds: int):
+    async def _run_with_timeout(func, timeout_seconds: float):
         try:
             return await asyncio.wait_for(asyncio.to_thread(func), timeout=timeout_seconds)
         except asyncio.TimeoutError:
@@ -461,11 +461,16 @@ async def email_health() -> EmailHealthResponse:
         except Exception as exc:
             return HealthResult(ok=False, provider="exception", detail=str(exc))
 
-    graph_result = await _run_with_timeout(graph_health_check, timeout_seconds=5)
-    smtp_result = await _run_with_timeout(smtp_health_check, timeout_seconds=5)
-    if graph_result.ok:
+    graph_timeout = float(os.getenv("GRAPH_HEALTH_TIMEOUT_SECONDS") or os.getenv("GRAPH_TIMEOUT_SECONDS") or "10")
+    smtp_timeout = float(os.getenv("SMTP_HEALTH_TIMEOUT_SECONDS") or os.getenv("SMTP_TIMEOUT_SECONDS") or "15")
+
+    graph_result = await _run_with_timeout(graph_health_check, timeout_seconds=max(1.0, graph_timeout))
+    smtp_result = await _run_with_timeout(smtp_health_check, timeout_seconds=max(1.0, smtp_timeout))
+
+    status_result = await email_status()
+    if status_result.graph_configured:
         delivery_mode = "graph"
-    elif smtp_result.ok:
+    elif status_result.smtp_configured:
         delivery_mode = "smtp"
     else:
         delivery_mode = "stdout"

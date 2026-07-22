@@ -14,6 +14,7 @@ PHONE_SIGNUP_EMAIL_DOMAIN = "phone-auth.errandbridge.com"
 # columns added to the ORM model.
 AUTH_SAFE_USER_COLUMNS = (
 	User.id,
+	User.user_uuid,
 	User.email,
 	User.password_hash,
 	User.first_name,
