@@ -19,7 +19,7 @@ from notification_utils import (
     notify_pilot_status,
 )
 
-router = APIRouter(prefix="/v1/incidents", tags=["incidents"])
+router = APIRouter(prefix="/incidents", tags=["incidents"])
 
 
 class IncidentReportIn(BaseModel):

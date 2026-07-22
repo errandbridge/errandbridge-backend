@@ -12,7 +12,7 @@ try:
 except ImportError:
 	AsyncOpenAI = None
 
-router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
+router = APIRouter(prefix="/assistant", tags=["assistant"])
 logger = logging.getLogger(__name__)
 
 

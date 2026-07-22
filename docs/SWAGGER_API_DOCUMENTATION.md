@@ -73,9 +73,10 @@ Inside each section, Swagger UI sorts operations by URL path (`operationsSorter:
 That keeps all actions for the same resource near each other, for example `GET`, `POST`,
 `PUT`, `PATCH`, and `DELETE` variants of a related endpoint.
 
-Public REST v1 endpoints use `/v1/...` paths. Legacy `/api/v1/...` aliases remain callable
-for older deployed clients, but they are hidden from Swagger so external developers see the
-clean canonical API surface.
+Public REST endpoints use clean root paths such as `/incidents`, `/support/chat`,
+`/tracking/status/{errand_id}`, and `/pilots/profile`. Legacy `/v1/...` and
+`/api/v1/...` aliases remain callable for older deployed clients, but they are hidden
+from Swagger so external developers see the canonical API surface without a version prefix.
 
 ## Authentication
 

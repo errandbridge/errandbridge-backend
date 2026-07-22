@@ -28,7 +28,7 @@ from business_metrics import observe_tracking_delay_detected, observe_tracking_u
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1/tracking", tags=["pilot-tracking"])
+router = APIRouter(prefix="/tracking", tags=["pilot-tracking"])
 
 ACTIVE_TRACKING_STATUSES = {"in_progress", "picked_up", "delivered"}
 HISTORY_TRACKING_STATUSES = {"completed", *ACTIVE_TRACKING_STATUSES}

@@ -45,7 +45,7 @@ import json
 import logging
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/v1/pilots", tags=["pilots"])
+router = APIRouter(prefix="/pilots", tags=["pilots"])
 
 MAX_ACCEPT_DISTANCE_MILES = 5
 MAX_ACCEPT_DISTANCE_KM = MAX_ACCEPT_DISTANCE_MILES * 1.60934
@@ -1081,7 +1081,7 @@ async def start_delivery(
                 "status": errand.status,
                 "tracking_enabled": not bool(getattr(errand, "tracking_paused", False)),
                 "tracking_paused": bool(getattr(errand, "tracking_paused", False)),
-                "tracking_url": f"/v1/tracking/ws/{errand_id}",
+                "tracking_url": f"/tracking/ws/{errand_id}",
                 "message": "Delivery is already in progress.",
                 "pickup_location": errand.pickup_location,
                 "dropoff_location": errand.dropoff_location,
@@ -1159,7 +1159,7 @@ async def start_delivery(
             "errand_id": errand_id,
             "status": errand.status,
             "tracking_enabled": True,
-            "tracking_url": f"/v1/tracking/ws/{errand_id}",
+            "tracking_url": f"/tracking/ws/{errand_id}",
             "message": "Delivery started. GPS tracking is now active.",
             "pickup_location": errand.pickup_location,
             "dropoff_location": errand.dropoff_location,

@@ -31,7 +31,7 @@ from auth import decode_access_token
 from database import get_db
 from models import Errand, ErrandMessage, User
 
-router = APIRouter(prefix="/v1/errands", tags=["errand-messages"])
+router = APIRouter(prefix="/errands", tags=["errand-messages"])
 
 
 _EMAIL_RE = re.compile(

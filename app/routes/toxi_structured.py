@@ -13,7 +13,7 @@ try:
 except ImportError:
 	AsyncOpenAI = None
 
-router = APIRouter(prefix="/v1/toxi", tags=["toxi"])
+router = APIRouter(prefix="/toxi", tags=["toxi"])
 logger = logging.getLogger(__name__)
 
 

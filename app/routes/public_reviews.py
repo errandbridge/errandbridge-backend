@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Errand, User
 
-router = APIRouter(prefix="/v1/public", tags=["public"])
+router = APIRouter(prefix="/public", tags=["public"])
 
 
 def _compact_place(value: Optional[str]) -> str:

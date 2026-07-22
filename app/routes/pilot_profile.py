@@ -27,7 +27,7 @@ from app.pilot_dispatch import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/v1/pilots", tags=["pilot-profile"])
+router = APIRouter(prefix="/pilots", tags=["pilot-profile"])
 
 # Upload directory for profile images.
 # Keep this aligned with the backend's global UPLOAD_DIR (used elsewhere for local storage)

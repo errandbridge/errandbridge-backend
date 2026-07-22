@@ -4,7 +4,7 @@ Client users previously stored profile images in localStorage only. This router
 adds a server-backed profile image upload/remove endpoint so profile images
 persist across sessions and devices.
 
-- PUT /v1/users/profile-image
+- PUT /users/profile-image
   - profile_image=<file> uploads and stores /uploads/profiles/<filename>
   - remove_profile_image=true clears the stored profile_image_url
 
@@ -31,7 +31,7 @@ from models import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1/users", tags=["user-profile"])
+router = APIRouter(prefix="/users", tags=["user-profile"])
 
 # Upload directory for profile images
 UPLOAD_DIR = os.path.join(

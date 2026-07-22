@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field
 from prometheus_fastapi_instrumentator import Instrumentator
 from strawberry.fastapi import GraphQLRouter
 from starlette.requests import Request
-from sqlalchemy import select, update, text, func
+from sqlalchemy import select, update, text
 from app.routes.pilot_delivery import router as pilot_delivery_router
 from app.routes.pilot_profile import router as pilot_profile_router
 from app.routes.user_profile import router as user_profile_router
@@ -224,23 +224,23 @@ def _openapi_tag_for_path(path: str, existing_tags: list[str]) -> str:
         or path.startswith("/attachments")
         or path.startswith("/share/")
         or path.startswith("/public/errands/")
-        or path.startswith("/v1/errands/")
         or path.startswith("/api/v1/errands/")
+        or path.startswith("/v1/errands/")
     ):
         return "03 Errands & Attachments"
-    if path.startswith("/v1/pilots/") or path.startswith("/api/v1/pilots/") or path.startswith("/pilot-employment/"):
+    if path.startswith("/pilots/") or path.startswith("/v1/pilots/") or path.startswith("/api/v1/pilots/") or path.startswith("/pilot-employment/"):
         return "04 Pilots & Delivery"
-    if path.startswith("/v1/tracking/") or path.startswith("/api/v1/tracking/"):
+    if path.startswith("/tracking/") or path.startswith("/v1/tracking/") or path.startswith("/api/v1/tracking/"):
         return "05 Tracking & Live Location"
     if path.startswith("/payments/") or path.startswith("/webhooks/stripe"):
         return "06 Payments & Subscriptions"
     if path.startswith("/promo-codes/"):
         return "07 Promo Codes"
-    if path.startswith("/v1/support/") or path.startswith("/v1/incidents/") or path.startswith("/api/v1/support/") or path.startswith("/api/v1/incidents/"):
+    if path.startswith("/support/") or path.startswith("/incidents/") or path.startswith("/v1/support/") or path.startswith("/v1/incidents/") or path.startswith("/api/v1/support/") or path.startswith("/api/v1/incidents/"):
         return "08 Support & Incidents"
-    if path.startswith("/v1/public/") or path.startswith("/api/v1/public/") or path.startswith("/uploads/profiles/"):
+    if path.startswith("/public/") or path.startswith("/v1/public/") or path.startswith("/api/v1/public/") or path.startswith("/uploads/profiles/"):
         return "09 Public & Reviews"
-    if path.startswith("/v1/assistant/") or path.startswith("/v1/toxi/") or path.startswith("/api/v1/assistant/") or path.startswith("/api/v1/toxi/") or path.startswith("/prompt/"):
+    if path.startswith("/assistant/") or path.startswith("/toxi/") or path.startswith("/v1/assistant/") or path.startswith("/v1/toxi/") or path.startswith("/api/v1/assistant/") or path.startswith("/api/v1/toxi/") or path.startswith("/prompt/"):
         return "10 Assistant & AI"
     if path.startswith("/analytics/") or path.startswith("/voice/"):
         return "11 Analytics & Voice"
@@ -263,10 +263,10 @@ def _organize_openapi_tags(openapi_schema: dict) -> None:
 
 
 def _hide_legacy_api_paths(openapi_schema: dict) -> None:
-    """Keep backward-compatible /api routes callable but out of public Swagger docs."""
+    """Keep backward-compatible /v1 and /api routes callable but out of public Swagger docs."""
     paths = openapi_schema.get("paths") or {}
     for path in list(paths.keys()):
-        if path.startswith("/api/"):
+        if path.startswith("/api/") or path.startswith("/v1/"):
             paths.pop(path, None)
 
 
@@ -1026,8 +1026,8 @@ app.include_router(payments_router)
 app.include_router(webhooks_router)
 app.include_router(promo_codes_router)
 
-# Backwards compatibility for older app builds that call /api/v1/*.
-# New clients and Swagger docs should use /v1/*.
+# Backwards compatibility for older app builds that call /v1/* or /api/v1/*.
+# New clients and Swagger docs should use root paths without the /v1 prefix.
 for legacy_router in (
     tracking_router,
     pilot_delivery_router,
@@ -1040,7 +1040,8 @@ for legacy_router in (
     toxi_structured_router,
     errand_messages_router,
 ):
-    app.include_router(legacy_router, prefix="/api", include_in_schema=False)
+    app.include_router(legacy_router, prefix="/v1", include_in_schema=False)
+    app.include_router(legacy_router, prefix="/api/v1", include_in_schema=False)
 
 
 def _env_truthy(value: str | None) -> bool:

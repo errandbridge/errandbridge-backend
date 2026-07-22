@@ -22,7 +22,7 @@ try:
 except ImportError:
     AsyncOpenAI = None
 
-router = APIRouter(prefix="/v1/support", tags=["support"])
+router = APIRouter(prefix="/support", tags=["support"])
 
 
 def _require_user_id_from_token(token: Optional[str]) -> int:
