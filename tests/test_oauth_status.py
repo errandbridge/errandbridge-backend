@@ -43,6 +43,7 @@ async def test_oauth_status_marks_google_token_enabled_when_client_id_present(mo
 
 @pytest.mark.asyncio
 async def test_oauth_status_disables_redirect_flows_for_disallowed_origin(monkeypatch):
+	monkeypatch.setenv("ENV", "prod")
 	monkeypatch.setenv("OAUTH_ALLOWED_ORIGINS", "https://www.errandbridge.com")
 	monkeypatch.delenv("CORS_ALLOW_ORIGINS", raising=False)
 	monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "client-id")
@@ -68,6 +69,28 @@ async def test_oauth_status_disables_redirect_flows_for_disallowed_origin(monkey
 	assert status.apple.redirect.enabled is False
 	assert status.apple.redirect.origin_allowed is False
 	assert status.apple.redirect.reason == "Origin is not allowed"
+
+
+@pytest.mark.asyncio
+async def test_oauth_status_allows_localhost_in_non_prod_even_with_explicit_origins(monkeypatch):
+	monkeypatch.setenv("ENV", "local")
+	monkeypatch.setenv("OAUTH_ALLOWED_ORIGINS", "https://www.errandbridge.com")
+	monkeypatch.delenv("CORS_ALLOW_ORIGINS", raising=False)
+	monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "client-id")
+	monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "client-secret")
+	monkeypatch.setenv(
+		"GOOGLE_OAUTH_REDIRECT_URI",
+		"http://localhost:8001/auth/oauth/google/callback",
+	)
+
+	status = await routes_auth.oauth_status(
+		origin="http://localhost:3000",
+		role="client",
+	)
+
+	assert status.google.redirect.origin_allowed is True
+	assert status.google.redirect.enabled is True
+	assert status.google.redirect.reason is None
 
 
 @pytest.mark.asyncio

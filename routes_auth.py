@@ -901,7 +901,12 @@ def _allowed_oauth_origins() -> set[str]:
     # Prefer explicit OAUTH_ALLOWED_ORIGINS; fall back to CORS_ALLOW_ORIGINS.
     raw = (os.getenv("OAUTH_ALLOWED_ORIGINS") or os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
     values = [v.strip().rstrip("/") for v in raw.split(",") if v.strip()]
-    return set(values)
+    allowed = set(values)
+    if allowed and not _is_production_env():
+        # Local Google OAuth popup testing should keep working even when a
+        # developer copies production OAUTH_ALLOWED_ORIGINS into their .env.
+        allowed.update({"http://localhost:3000", "http://127.0.0.1:3000"})
+    return allowed
 
 
 def _oauth_origin_status(origin: str) -> tuple[str, bool, str]:
