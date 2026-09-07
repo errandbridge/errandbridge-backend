@@ -129,7 +129,9 @@ async def test_list_pilot_jobs_exposes_canonical_payment_amount(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_list_available_jobs_filters_open_pool_by_city_and_5_miles_but_keeps_dedicated_assignments(monkeypatch):
+async def test_list_available_jobs_filters_open_pool_by_city_and_5_miles_but_keeps_dedicated_assignments(
+    monkeypatch,
+):
     async def fake_current_user(_authorization, _db):
         return SimpleNamespace(id=77, city="Lagos", state_province="Lagos")
 
@@ -247,7 +249,9 @@ async def test_list_available_jobs_filters_open_pool_by_city_and_5_miles_but_kee
 
 
 @pytest.mark.asyncio
-async def test_list_available_jobs_can_show_non_matching_jobs_when_policy_allows(monkeypatch):
+async def test_list_available_jobs_can_show_non_matching_jobs_when_policy_allows(
+    monkeypatch,
+):
     async def fake_current_user(_authorization, _db):
         return SimpleNamespace(id=77, city="Lagos", state_province="Lagos")
 
@@ -331,7 +335,10 @@ async def test_list_available_jobs_can_show_non_matching_jobs_when_policy_allows
     assert payload["errands"][0]["matches_dispatch_policy"] is True
     assert payload["errands"][0]["acceptance_block_reason"] is None
     assert payload["errands"][1]["matches_dispatch_policy"] is False
-    assert payload["errands"][1]["acceptance_block_reason"] == "Errand is outside the 15 mile radius"
+    assert (
+        payload["errands"][1]["acceptance_block_reason"]
+        == "Errand is outside the 15 mile radius"
+    )
 
 
 @pytest.mark.asyncio

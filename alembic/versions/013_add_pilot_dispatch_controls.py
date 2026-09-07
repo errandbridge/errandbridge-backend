@@ -8,7 +8,6 @@ Create Date: 2026-04-11 00:00:00.000000
 from alembic import op
 import sqlalchemy as sa
 
-
 # revision identifiers, used by Alembic.
 revision = "013_add_pilot_dispatch_controls"
 down_revision = "012_add_errand_messages"

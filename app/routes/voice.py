@@ -15,8 +15,8 @@ from auth import decode_access_token
 from database import get_db
 from models import Errand, User, VoiceCallSession, VoiceCallEvent
 from models.voice_call_event import build_event_hash
-from twilio_voice import create_call, request_transcription
-from voice_worm import store_worm_json, store_worm_bytes
+from app.services.twilio_voice import create_call, request_transcription
+from app.services.voice_worm import store_worm_json, store_worm_bytes
 import httpx
 
 router = APIRouter(prefix="/voice", tags=["voice"])
@@ -57,7 +57,9 @@ async def _log_event(
     payload: dict,
 ) -> VoiceCallEvent:
     result = await db.execute(
-        select(VoiceCallEvent).where(VoiceCallEvent.session_id == session.id).order_by(VoiceCallEvent.id.desc())
+        select(VoiceCallEvent)
+        .where(VoiceCallEvent.session_id == session.id)
+        .order_by(VoiceCallEvent.id.desc())
     )
     last = result.scalars().first()
     previous_hash = last.entry_hash if last else None
@@ -123,8 +125,16 @@ async def start_masked_call(
     twiml_url = f"{base}/voice/twiml/{session.id}"
     status_callback = f"{base}/voice/status/{session.id}"
 
-    pilot_call = create_call(to_number=pilot.phone, twiml_url=twiml_url + "?role=pilot", status_callback=status_callback)
-    customer_call = create_call(to_number=customer.phone, twiml_url=twiml_url + "?role=customer", status_callback=status_callback)
+    pilot_call = create_call(
+        to_number=pilot.phone,
+        twiml_url=twiml_url + "?role=pilot",
+        status_callback=status_callback,
+    )
+    customer_call = create_call(
+        to_number=customer.phone,
+        twiml_url=twiml_url + "?role=customer",
+        status_callback=status_callback,
+    )
 
     if not pilot_call.ok or not customer_call.ok:
         session.status = "failed"
@@ -204,10 +214,16 @@ async def twilio_recording_callback(
     if not session:
         return {"ok": True}
 
-    callback_url = f"{_public_base(request)}/voice/transcription/{session_id}" if recording_sid else None
+    callback_url = (
+        f"{_public_base(request)}/voice/transcription/{session_id}"
+        if recording_sid
+        else None
+    )
     transcription_result = None
     if recording_sid:
-        transcription_result = request_transcription(recording_sid=recording_sid, callback_url=callback_url)
+        transcription_result = request_transcription(
+            recording_sid=recording_sid, callback_url=callback_url
+        )
 
     worm_key = None
     worm_media_key = None
@@ -217,8 +233,12 @@ async def twilio_recording_callback(
             payload={
                 "recording_sid": recording_sid,
                 "recording_url": recording_url,
-                "transcription_requested": bool(transcription_result and transcription_result.ok),
-                "transcription_detail": transcription_result.detail if transcription_result else None,
+                "transcription_requested": bool(
+                    transcription_result and transcription_result.ok
+                ),
+                "transcription_detail": (
+                    transcription_result.detail if transcription_result else None
+                ),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         )
@@ -241,8 +261,12 @@ async def twilio_recording_callback(
         {
             "recording_sid": recording_sid,
             "recording_url": recording_url,
-            "transcription_requested": bool(transcription_result and transcription_result.ok),
-            "transcription_detail": transcription_result.detail if transcription_result else None,
+            "transcription_requested": bool(
+                transcription_result and transcription_result.ok
+            ),
+            "transcription_detail": (
+                transcription_result.detail if transcription_result else None
+            ),
             "worm_key": worm_key,
             "worm_media_key": worm_media_key,
         },
@@ -306,11 +330,11 @@ async def twiml_for_conference(
     recording_callback = f"{_public_base(request)}/voice/recording/{session_id}"
 
     twiml = (
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        '<?xml version="1.0" encoding="UTF-8"?>'
         "<Response>"
         f"<Say>Connecting {role}.</Say>"
-    "<Dial>"
-    f"<Conference record=\"record-from-start\" recordingStatusCallback=\"{recording_callback}\">{session.conference_name}</Conference>"
+        "<Dial>"
+        f'<Conference record="record-from-start" recordingStatusCallback="{recording_callback}">{session.conference_name}</Conference>'
         "</Dial>"
         "</Response>"
     )

@@ -23,7 +23,10 @@ def test_checkout_success_url_uses_request_origin_when_allowed(monkeypatch):
     assert payments_module._build_success_url(origin) == (
         "http://localhost:3000/payment/success?session_id={CHECKOUT_SESSION_ID}"
     )
-    assert payments_module._build_cancel_url(origin) == "http://localhost:3000/payment/cancel"
+    assert (
+        payments_module._build_cancel_url(origin)
+        == "http://localhost:3000/payment/cancel"
+    )
 
 
 def test_checkout_success_url_allows_cra_fallback_ports_by_default(monkeypatch):
@@ -50,7 +53,10 @@ def test_checkout_success_url_allows_cra_fallback_ports_by_default(monkeypatch):
     assert payments_module._build_success_url(origin) == (
         "http://localhost:3002/payment/success?session_id={CHECKOUT_SESSION_ID}"
     )
-    assert payments_module._build_cancel_url(origin) == "http://localhost:3002/payment/cancel"
+    assert (
+        payments_module._build_cancel_url(origin)
+        == "http://localhost:3002/payment/cancel"
+    )
 
 
 def test_checkout_success_url_does_not_use_unallowed_origin(monkeypatch):
@@ -71,7 +77,10 @@ def test_checkout_success_url_does_not_use_unallowed_origin(monkeypatch):
     assert payments_module._build_success_url(origin) == (
         "https://www.errandbridge.com/payment/success?session_id={CHECKOUT_SESSION_ID}"
     )
-    assert payments_module._build_cancel_url(origin) == "https://www.errandbridge.com/payment/cancel"
+    assert (
+        payments_module._build_cancel_url(origin)
+        == "https://www.errandbridge.com/payment/cancel"
+    )
 
 
 def test_payments_allowed_origins_override_is_authoritative(monkeypatch):

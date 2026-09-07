@@ -1,0 +1,6 @@
+- [x] Add `must_change_password` to `User` model in `models/user.py`.
+- [x] Generate Alembic migration for `must_change_password`.
+- [x] Update `OtpSendRequestSimple` in `routes_auth.py` to include `first_name`, `last_name`, and `role`.
+- [x] Update `/otp/request` logic in `routes_auth.py` to handle signup.
+- [x] Update `AuthResponse` and `MeResponse` (or similar) to include `must_change_password` flag so frontend can read it.
+- [x] Modify `CustomerAuthPage.jsx` to pass `firstName` and `lastName` to `/auth/otp/request` during signup.

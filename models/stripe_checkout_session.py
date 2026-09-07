@@ -11,7 +11,9 @@ class StripeCheckoutSession(Base):
     stripe_session_id = Column(String, nullable=False, unique=True, index=True)
 
     user_id = Column(Integer, nullable=True, index=True)
-    kind = Column(String, nullable=False, default="payment")  # payment | subscription | tip
+    kind = Column(
+        String, nullable=False, default="payment"
+    )  # payment | subscription | tip
     mode = Column(String, nullable=True)  # payment | subscription (Stripe session.mode)
 
     paid = Column(Boolean, nullable=False, default=False)
@@ -24,5 +26,12 @@ class StripeCheckoutSession(Base):
     used_for_errand_id = Column(Integer, nullable=True, index=True)
     used_at = Column(DateTime(timezone=True), nullable=True)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )

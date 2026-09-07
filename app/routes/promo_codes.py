@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth import decode_access_token
 from database import get_db
 from models import PromoCode
-from promo_code_service import (
+from app.services.promo_code_service import (
     format_display_code,
     normalize_promo_code,
     validate_promo_code_for_user,
@@ -32,12 +32,20 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
     return token.strip() or None
 
 
-async def _current_user_id_from_request(request: Request, authorization: Optional[str]) -> int:
-    header = authorization or request.headers.get("authorization") or request.headers.get("Authorization")
+async def _current_user_id_from_request(
+    request: Request, authorization: Optional[str]
+) -> int:
+    header = (
+        authorization
+        or request.headers.get("authorization")
+        or request.headers.get("Authorization")
+    )
     token = _extract_bearer(header)
     user_id = decode_access_token(token) if token else None
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
     return int(user_id)
 
 
@@ -116,12 +124,18 @@ async def validate_promo_code(
         raise HTTPException(status_code=400, detail="Promo code is required")
 
     # Determine caller identity if present.
-    header = authorization or request.headers.get("authorization") or request.headers.get("Authorization")
+    header = (
+        authorization
+        or request.headers.get("authorization")
+        or request.headers.get("Authorization")
+    )
     token = _extract_bearer(header)
     user_id = decode_access_token(token) if token else None
 
     try:
-        promo = await validate_promo_code_for_user(db, code=code, user_id=(int(user_id) if user_id else None))
+        promo = await validate_promo_code_for_user(
+            db, code=code, user_id=(int(user_id) if user_id else None)
+        )
     except ValueError as e:
         return ValidatePromoOut(ok=False, message=str(e))
 

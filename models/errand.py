@@ -19,6 +19,7 @@ ENABLE_PAYMENT_METADATA_COLUMNS = _env_truthy(
     os.getenv("ENABLE_PAYMENT_METADATA_COLUMNS")
 )
 
+
 class Errand(Base):
     __tablename__ = "errands"
     id = Column(Integer, primary_key=True, index=True)
@@ -54,11 +55,13 @@ class Errand(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
     user_id = Column(Integer, nullable=False)
-    
+
     # Assignment tracking
-    assigned_to = Column(Integer, nullable=True, index=True)  # Admin user ID who is assigned
+    assigned_to = Column(
+        Integer, nullable=True, index=True
+    )  # Admin user ID who is assigned
     assigned_at = Column(DateTime(timezone=True), nullable=True)  # When assigned
-    
+
     # Review fields (after completion)
     review_status = Column(String, nullable=True)  # 'pending', 'reviewed', 'appealed'
     reviewer_rating = Column(Integer, nullable=True)  # 1-5 stars
@@ -66,17 +69,25 @@ class Errand(Base):
     review_completed_at = Column(DateTime(timezone=True), nullable=True)
 
     # Pickup time slot (when customer wants to pick up the errand)
-    pickup_time_slot_start = Column(DateTime(timezone=True), nullable=True)  # e.g., 9:00 AM
-    pickup_time_slot_end = Column(DateTime(timezone=True), nullable=True)    # e.g., 5:00 PM
+    pickup_time_slot_start = Column(
+        DateTime(timezone=True), nullable=True
+    )  # e.g., 9:00 AM
+    pickup_time_slot_end = Column(
+        DateTime(timezone=True), nullable=True
+    )  # e.g., 5:00 PM
     pickup_time_slot_date = Column(String, nullable=True)  # Date in YYYY-MM-DD format
 
     # Pilot delivery tracking fields
     pilot_id = Column(Integer, nullable=True, index=True)  # FK to pilot user
-    started_at = Column(DateTime(timezone=True), nullable=True)  # When pilot started delivery
-    completed_at = Column(DateTime(timezone=True), nullable=True)  # When delivery completed
+    started_at = Column(
+        DateTime(timezone=True), nullable=True
+    )  # When pilot started delivery
+    completed_at = Column(
+        DateTime(timezone=True), nullable=True
+    )  # When delivery completed
     delivery_time = Column(Float, nullable=True)  # Delivery duration in seconds
     tracking_paused = Column(Boolean, default=False)  # Whether tracking is paused
-    
+
     # Proof of delivery
     signature_url = Column(String, nullable=True)  # URL to signature image
     photo_url = Column(String, nullable=True)  # URL to delivery photo
@@ -86,7 +97,9 @@ class Errand(Base):
 
     # Tip metadata (Stripe-verified, separate from initial payment metadata)
     # Stored for internal reconciliation and pilot reporting.
-    tip_amount_total_minor = Column(Integer, nullable=True)  # e.g., Stripe session.amount_total
+    tip_amount_total_minor = Column(
+        Integer, nullable=True
+    )  # e.g., Stripe session.amount_total
     tip_currency = Column(String, nullable=True)  # e.g., 'usd', 'ngn'
     tip_paid_at = Column(DateTime(timezone=True), nullable=True)
     tip_stripe_session_id = Column(String, nullable=True)
@@ -95,6 +108,10 @@ class Errand(Base):
     # Stored for internal reconciliation and pilot reporting.
     # These columns are optional and only mapped when enabled.
     if ENABLE_PAYMENT_METADATA_COLUMNS:
-        payment_amount_total_minor = Column(Integer, nullable=True)  # e.g., Stripe session.amount_total
+        payment_amount_total_minor = Column(
+            Integer, nullable=True
+        )  # e.g., Stripe session.amount_total
         payment_currency = Column(String, nullable=True)  # e.g., 'usd', 'ngn'
-        payment_amount_ngn_major = Column(Integer, nullable=True)  # canonical NGN amount (rounded major units)
+        payment_amount_ngn_major = Column(
+            Integer, nullable=True
+        )  # canonical NGN amount (rounded major units)

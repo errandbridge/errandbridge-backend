@@ -58,7 +58,9 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def _collect_unverified_users(session, before_days: int | None, limit: int | None):
+async def _collect_unverified_users(
+    session, before_days: int | None, limit: int | None
+):
     query = select(User).where(User.is_email_verified.is_(False))
     if before_days is not None:
         cutoff = datetime.now(timezone.utc) - timedelta(days=before_days)
@@ -94,7 +96,9 @@ async def main() -> None:
             result = await session.execute(query)
             users = result.scalars().all()
         else:
-            users = await _collect_unverified_users(session, args.before_days, args.limit)
+            users = await _collect_unverified_users(
+                session, args.before_days, args.limit
+            )
 
         if args.email_contains:
             token = args.email_contains.lower()

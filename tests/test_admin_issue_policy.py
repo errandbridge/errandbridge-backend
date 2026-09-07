@@ -80,10 +80,10 @@ class DeleteUserDB:
         db = self
 
         class _NestedContext:
-            async def __aenter__(self_inner):
+            async def __aenter__(_):
                 return db
 
-            async def __aexit__(self_inner, exc_type, exc, tb):
+            async def __aexit__(_, _exc_type, exc, _tb):
                 return False
 
         return _NestedContext()
@@ -102,7 +102,11 @@ class BulkDeleteDB(DeleteUserDB):
 
     async def execute(self, query):
         requested_ids = query._where_criteria[0].right.value
-        values = [self.users[int(user_id)] for user_id in requested_ids if int(user_id) in self.users]
+        values = [
+            self.users[int(user_id)]
+            for user_id in requested_ids
+            if int(user_id) in self.users
+        ]
         return self._ScalarResult(values)
 
 
@@ -222,7 +226,9 @@ async def test_update_pilot_dispatch_policy_sets_updated_at(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_or_create_pilot_dispatch_policy_ensures_storage_before_query(monkeypatch):
+async def test_get_or_create_pilot_dispatch_policy_ensures_storage_before_query(
+    monkeypatch,
+):
     db = FakePolicyDB(get_results=[None])
     ensure_calls = []
 
@@ -258,9 +264,19 @@ async def test_standard_admin_cannot_delete_another_admin(monkeypatch):
         return {"stored_filenames": []}
 
     monkeypatch.setattr(routes_admin, "_require_admin", fake_require_admin)
-    monkeypatch.setattr(routes_admin, "_cascade_delete_user_data", fake_cascade_delete_user_data)
-    monkeypatch.setattr(routes_admin, "admin_emails", lambda: {"admin@errandbridge.com", "ade@errandbridge.com"})
-    monkeypatch.setattr(routes_admin, "is_elevated_admin_email", lambda email: str(email).lower() == "ade@errandbridge.com")
+    monkeypatch.setattr(
+        routes_admin, "_cascade_delete_user_data", fake_cascade_delete_user_data
+    )
+    monkeypatch.setattr(
+        routes_admin,
+        "admin_emails",
+        lambda: {"admin@errandbridge.com", "ade@errandbridge.com"},
+    )
+    monkeypatch.setattr(
+        routes_admin,
+        "is_elevated_admin_email",
+        lambda email: str(email).lower() == "ade@errandbridge.com",
+    )
 
     with pytest.raises(HTTPException) as excinfo:
         await routes_admin.delete_user(user_id=27, request=request, db=db)
@@ -284,9 +300,19 @@ async def test_elevated_admin_can_delete_another_admin(monkeypatch):
         return {"stored_filenames": []}
 
     monkeypatch.setattr(routes_admin, "_require_admin", fake_require_admin)
-    monkeypatch.setattr(routes_admin, "_cascade_delete_user_data", fake_cascade_delete_user_data)
-    monkeypatch.setattr(routes_admin, "admin_emails", lambda: {"admin@errandbridge.com", "ade@errandbridge.com"})
-    monkeypatch.setattr(routes_admin, "is_elevated_admin_email", lambda email: str(email).lower() == "ade@errandbridge.com")
+    monkeypatch.setattr(
+        routes_admin, "_cascade_delete_user_data", fake_cascade_delete_user_data
+    )
+    monkeypatch.setattr(
+        routes_admin,
+        "admin_emails",
+        lambda: {"admin@errandbridge.com", "ade@errandbridge.com"},
+    )
+    monkeypatch.setattr(
+        routes_admin,
+        "is_elevated_admin_email",
+        lambda email: str(email).lower() == "ade@errandbridge.com",
+    )
 
     payload = await routes_admin.delete_user(user_id=10, request=request, db=db)
 
@@ -310,13 +336,19 @@ async def test_bulk_delete_skips_admins_for_standard_admin(monkeypatch):
         return {"stored_filenames": []}
 
     monkeypatch.setattr(routes_admin, "_require_admin", fake_require_admin)
-    monkeypatch.setattr(routes_admin, "_cascade_delete_user_data", fake_cascade_delete_user_data)
+    monkeypatch.setattr(
+        routes_admin, "_cascade_delete_user_data", fake_cascade_delete_user_data
+    )
     monkeypatch.setattr(
         routes_admin,
         "admin_emails",
         lambda: {"admin@errandbridge.com", "ade@errandbridge.com"},
     )
-    monkeypatch.setattr(routes_admin, "is_elevated_admin_email", lambda email: str(email).lower() == "ade@errandbridge.com")
+    monkeypatch.setattr(
+        routes_admin,
+        "is_elevated_admin_email",
+        lambda email: str(email).lower() == "ade@errandbridge.com",
+    )
 
     payload = await routes_admin.bulk_delete_users(
         payload=routes_admin.AdminBulkDeleteUsersIn(user_ids=[27, 33]),
@@ -348,13 +380,19 @@ async def test_bulk_delete_allows_admin_targets_for_elevated_admin(monkeypatch):
         return {"stored_filenames": []}
 
     monkeypatch.setattr(routes_admin, "_require_admin", fake_require_admin)
-    monkeypatch.setattr(routes_admin, "_cascade_delete_user_data", fake_cascade_delete_user_data)
+    monkeypatch.setattr(
+        routes_admin, "_cascade_delete_user_data", fake_cascade_delete_user_data
+    )
     monkeypatch.setattr(
         routes_admin,
         "admin_emails",
         lambda: {"admin@errandbridge.com", "ade@errandbridge.com"},
     )
-    monkeypatch.setattr(routes_admin, "is_elevated_admin_email", lambda email: str(email).lower() == "ade@errandbridge.com")
+    monkeypatch.setattr(
+        routes_admin,
+        "is_elevated_admin_email",
+        lambda email: str(email).lower() == "ade@errandbridge.com",
+    )
 
     payload = await routes_admin.bulk_delete_users(
         payload=routes_admin.AdminBulkDeleteUsersIn(user_ids=[10, 33]),

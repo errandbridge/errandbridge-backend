@@ -10,12 +10,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from admin_utils import require_admin_user
+from app.utils.admin_utils import require_admin_user
 from auth import decode_access_token
 from database import get_db
 from models import SupportConversation, SupportMessage, User
-from emailer import send_email
-from notification_utils import notify_admin_support_handoff
+from app.services.emailer import send_email
+from app.utils.notification_utils import notify_admin_support_handoff
 
 try:
     from openai import AsyncOpenAI
@@ -93,7 +93,9 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
 def _rule_based_response(message: str) -> tuple[str, bool]:
     text = message.lower()
 
-    if any(keyword in text for keyword in ["agent", "human", "representative", "support"]):
+    if any(
+        keyword in text for keyword in ["agent", "human", "representative", "support"]
+    ):
         return (
             "I can connect you with a live agent. Please confirm your best contact email or phone.",
             True,
@@ -140,7 +142,10 @@ async def _ai_response(message: str) -> tuple[str, bool]:
     )
 
     response_text = result.output_text or "I can help with your request."
-    needs_handoff = any(term in message.lower() for term in ["agent", "human", "representative"]) or False
+    needs_handoff = (
+        any(term in message.lower() for term in ["agent", "human", "representative"])
+        or False
+    )
     return response_text, needs_handoff
 
 
@@ -195,7 +200,11 @@ async def chat_with_support(
     await db.commit()
 
     if needs_handoff and not handoff_requested_before:
-        support_user = await db.get(User, int(conversation.user_id)) if conversation.user_id else None
+        support_user = (
+            await db.get(User, int(conversation.user_id))
+            if conversation.user_id
+            else None
+        )
         try:
             await notify_admin_support_handoff(
                 db,
@@ -293,8 +302,12 @@ async def list_support_conversations(
                 "user_id": convo.user_id,
                 "status": convo.status,
                 "handoff_requested": convo.handoff_requested,
-                "created_at": convo.created_at.isoformat() if convo.created_at else None,
-                "updated_at": convo.updated_at.isoformat() if convo.updated_at else None,
+                "created_at": (
+                    convo.created_at.isoformat() if convo.created_at else None
+                ),
+                "updated_at": (
+                    convo.updated_at.isoformat() if convo.updated_at else None
+                ),
             }
             for convo in conversations.scalars().all()
         ]
@@ -333,7 +346,9 @@ async def list_support_handoff_alerts(
                 "session_id": convo.session_id,
                 "status": convo.status,
                 "handoff_requested": bool(convo.handoff_requested),
-                "updated_at": convo.updated_at.isoformat() if convo.updated_at else None,
+                "updated_at": (
+                    convo.updated_at.isoformat() if convo.updated_at else None
+                ),
             }
             for convo in rows
         ]

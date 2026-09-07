@@ -59,7 +59,9 @@ async def test_update_location_handles_mixed_timezone_issue_reported_at(monkeypa
     async def fake_broadcast(errand_id, message):
         broadcast_calls.append((errand_id, message))
 
-    monkeypatch.setattr(tracking, "_require_assigned_pilot", fake_require_assigned_pilot)
+    monkeypatch.setattr(
+        tracking, "_require_assigned_pilot", fake_require_assigned_pilot
+    )
     monkeypatch.setattr(tracking.manager, "broadcast", fake_broadcast)
 
     payload = await tracking.update_location(
@@ -101,7 +103,10 @@ async def test_update_location_persists_recorded_at_and_source(monkeypatch):
     async def fake_require_assigned_pilot(_authorization, _errand, _db):
         return SimpleNamespace(id=77)
 
-    monkeypatch.setattr(tracking, "_require_assigned_pilot", fake_require_assigned_pilot)
+    monkeypatch.setattr(
+        tracking, "_require_assigned_pilot", fake_require_assigned_pilot
+    )
+
     async def fake_broadcast(*_args, **_kwargs):
         return None
 
@@ -120,7 +125,9 @@ async def test_update_location_persists_recorded_at_and_source(monkeypatch):
         db=db,
     )
 
-    stored_location = next(value for value in db.added if isinstance(value, PilotLocation))
+    stored_location = next(
+        value for value in db.added if isinstance(value, PilotLocation)
+    )
     assert stored_location.source == "mobile_app"
     assert stored_location.recorded_at == recorded_at
     assert stored_location.created_at == recorded_at

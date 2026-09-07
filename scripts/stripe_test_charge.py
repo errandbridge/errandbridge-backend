@@ -7,6 +7,7 @@ Usage:
 Requires:
   STRIPE_SECRET_KEY in environment (.env supported).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,11 +21,19 @@ import stripe
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a Stripe test-mode $1 charge.")
-    parser.add_argument("--amount", default="1.00", help="Amount in dollars (default: 1.00)")
-    parser.add_argument("--currency", default="usd", help="Currency code (default: usd)")
-    parser.add_argument("--payment-method", default="pm_card_visa", help="Stripe test payment method")
+    parser.add_argument(
+        "--amount", default="1.00", help="Amount in dollars (default: 1.00)"
+    )
+    parser.add_argument(
+        "--currency", default="usd", help="Currency code (default: usd)"
+    )
+    parser.add_argument(
+        "--payment-method", default="pm_card_visa", help="Stripe test payment method"
+    )
     parser.add_argument("--customer-id", default="", help="Optional Stripe customer ID")
-    parser.add_argument("--description", default="ErrandBridge test charge", help="Charge description")
+    parser.add_argument(
+        "--description", default="ErrandBridge test charge", help="Charge description"
+    )
     parser.add_argument(
         "--allow-live",
         action="store_true",
@@ -54,20 +63,28 @@ def main() -> int:
 
     stripe_key = os.getenv("STRIPE_SECRET_KEY")
     if not stripe_key:
-        print("ERROR: STRIPE_SECRET_KEY is not set. Add it to your .env before running.")
+        print(
+            "ERROR: STRIPE_SECRET_KEY is not set. Add it to your .env before running."
+        )
         return 1
 
     stripe.api_key = stripe_key
 
     is_live_mode = stripe_key.startswith("sk_live")
     if is_live_mode and not args.allow_live:
-        print("ERROR: Live-mode Stripe key detected. Use a test key or pass --allow-live with a real payment method ID.")
+        print(
+            "ERROR: Live-mode Stripe key detected. Use a test key or pass --allow-live with a real payment method ID."
+        )
         return 1
     if is_live_mode and not args.live_payment_method_id:
-        print("ERROR: Live-mode charge requested but no --live-payment-method-id was provided.")
+        print(
+            "ERROR: Live-mode charge requested but no --live-payment-method-id was provided."
+        )
         return 1
 
-    payment_method = args.live_payment_method_id if is_live_mode else args.payment_method
+    payment_method = (
+        args.live_payment_method_id if is_live_mode else args.payment_method
+    )
 
     try:
         amount_cents = amount_to_cents(args.amount)

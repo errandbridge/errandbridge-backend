@@ -49,7 +49,9 @@ async def test_password_reset_start_sends_otp_for_unverified_user(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_password_reset_confirm_marks_user_verified_and_updates_password(monkeypatch):
+async def test_password_reset_confirm_marks_user_verified_and_updates_password(
+    monkeypatch,
+):
     user = DummyUser("user@example.com", verified=False)
 
     async def fake_get_user_by_email(db, email: str):

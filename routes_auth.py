@@ -10,7 +10,17 @@ from urllib.parse import urlparse
 import json
 import time
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status, Form, Query, Request, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    status,
+    Form,
+    Query,
+    Request,
+    Response,
+)
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -39,16 +49,15 @@ from auth_user_query import (
     auth_safe_user_by_email_query,
     auth_safe_user_by_phone_query,
     build_phone_alias_email,
-    is_phone_alias_email,
     is_phone_identifier,
     normalize_phone_for_storage,
 )
-from admin_utils import admin_emails
+from app.utils.admin_utils import admin_emails
 from database import get_db
 from models import Errand, ErrandAttachment, User
-from otp import generate_numeric_code, hash_code, now_ts
-from emailer import send_email
-from sms_sender import send_sms
+from app.utils.otp import generate_numeric_code, hash_code, now_ts
+from app.services.emailer import send_email
+from app.services.sms_sender import send_sms
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 login_router = APIRouter(prefix="/login", tags=["login"])
@@ -62,12 +71,16 @@ DEFAULT_OTP_MODE: OtpMode = "code"
 
 def _is_production_env() -> bool:
     env = (
-        os.getenv("ENV")
-        or os.getenv("BACKEND_ENVIRONMENT")
-        or os.getenv("ENVIRONMENT")
-        or os.getenv("APP_ENV")
-        or ""
-    ).strip().lower()
+        (
+            os.getenv("ENV")
+            or os.getenv("BACKEND_ENVIRONMENT")
+            or os.getenv("ENVIRONMENT")
+            or os.getenv("APP_ENV")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
 
     if env in {"prod", "production"}:
         return True
@@ -119,6 +132,8 @@ class SignupRequest(BaseModel):
 
 class OtpSendRequestSimple(BaseModel):
     email: str = Field(..., min_length=1)
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     role: Optional[str] = Field(default="client")
 
 
@@ -172,7 +187,10 @@ class LoginCodeVerifyRequest(BaseModel):
 class LoginCodeVerifyData(BaseModel):
     sessionToken: str
     refreshToken: str
-    userUuid: str = Field(..., description="Stable public UUID for mapping data to this user. Not a replacement for Bearer authentication.")
+    userUuid: str = Field(
+        ...,
+        description="Stable public UUID for mapping data to this user. Not a replacement for Bearer authentication.",
+    )
     expiresInSeconds: int
     tokenType: str = "bearer"
 
@@ -226,18 +244,25 @@ class AuthResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     user_id: int
-    user_uuid: str = Field(..., description="Stable public UUID for mapping data to this user. Not a replacement for Bearer authentication.")
+    user_uuid: str = Field(
+        ...,
+        description="Stable public UUID for mapping data to this user. Not a replacement for Bearer authentication.",
+    )
     email: EmailStr
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     phone: Optional[str] = None
     is_email_verified: bool = False
     is_admin: bool = False
+    must_change_password: bool = False
 
 
 class MeResponse(BaseModel):
     user_id: int
-    user_uuid: str = Field(..., description="Stable public UUID for mapping data to this user. Not a replacement for Bearer authentication.")
+    user_uuid: str = Field(
+        ...,
+        description="Stable public UUID for mapping data to this user. Not a replacement for Bearer authentication.",
+    )
     email: EmailStr
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -251,6 +276,7 @@ class MeResponse(BaseModel):
     is_email_verified: bool = False
     is_admin: bool = False
     transparency: dict = Field(default_factory=dict)
+    must_change_password: bool = False
 
 
 class ConfirmRequest(BaseModel):
@@ -394,12 +420,18 @@ def _mask_email(email: str) -> str:
 def _normalize_email_identifier(value: str) -> str:
     candidate = (value or "").strip()
     if not candidate:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Enter a valid email address or phone number")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter a valid email address or phone number",
+        )
 
     try:
         validated = validate_email(candidate, check_deliverability=False)
     except EmailNotValidError:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Enter a valid email address or phone number")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter a valid email address or phone number",
+        )
 
     return str(validated.normalized).strip().lower()
 
@@ -412,10 +444,19 @@ def _build_otp_link(email: str, code: str) -> str | None:
     return f"{base.rstrip('/')}/?{query}"
 
 
-def _normalize_otp_options(channel: OtpChannel, mode: OtpMode) -> tuple[OtpChannel, OtpMode]:
-    resolved_channel: OtpChannel = channel if channel in ("email", "sms") else DEFAULT_OTP_CHANNEL
-    resolved_mode: OtpMode = mode if mode in ("code", "link", "both") else DEFAULT_OTP_MODE
-    if resolved_mode in ("link", "both") and not (os.getenv("OTP_VERIFICATION_LINK_BASE_URL") or "").strip():
+def _normalize_otp_options(
+    channel: OtpChannel, mode: OtpMode
+) -> tuple[OtpChannel, OtpMode]:
+    resolved_channel: OtpChannel = (
+        channel if channel in ("email", "sms") else DEFAULT_OTP_CHANNEL
+    )
+    resolved_mode: OtpMode = (
+        mode if mode in ("code", "link", "both") else DEFAULT_OTP_MODE
+    )
+    if (
+        resolved_mode in ("link", "both")
+        and not (os.getenv("OTP_VERIFICATION_LINK_BASE_URL") or "").strip()
+    ):
         resolved_mode = "code"
     return resolved_channel, resolved_mode
 
@@ -438,7 +479,9 @@ async def email_status() -> EmailStatusResponse:
     graph_client = (os.getenv("GRAPH_CLIENT_ID") or "").strip()
     graph_secret = (os.getenv("GRAPH_CLIENT_SECRET") or "").strip()
     graph_sender = (os.getenv("GRAPH_SENDER") or "").strip()
-    graph_configured = bool(graph_tenant and graph_client and graph_secret and graph_sender)
+    graph_configured = bool(
+        graph_tenant and graph_client and graph_secret and graph_sender
+    )
 
     if graph_configured:
         delivery_mode = "graph"
@@ -457,21 +500,37 @@ async def email_status() -> EmailStatusResponse:
 
 @router.get("/email-health", response_model=EmailHealthResponse)
 async def email_health() -> EmailHealthResponse:
-    from emailer import graph_health_check, smtp_health_check, HealthResult
+    from app.services.emailer import graph_health_check, smtp_health_check, HealthResult
 
     async def _run_with_timeout(func, timeout_seconds: float):
         try:
-            return await asyncio.wait_for(asyncio.to_thread(func), timeout=timeout_seconds)
+            return await asyncio.wait_for(
+                asyncio.to_thread(func), timeout=timeout_seconds
+            )
         except asyncio.TimeoutError:
-            return HealthResult(ok=False, provider="timeout", detail="health_check_timeout")
+            return HealthResult(
+                ok=False, provider="timeout", detail="health_check_timeout"
+            )
         except Exception as exc:
             return HealthResult(ok=False, provider="exception", detail=str(exc))
 
-    graph_timeout = float(os.getenv("GRAPH_HEALTH_TIMEOUT_SECONDS") or os.getenv("GRAPH_TIMEOUT_SECONDS") or "10")
-    smtp_timeout = float(os.getenv("SMTP_HEALTH_TIMEOUT_SECONDS") or os.getenv("SMTP_TIMEOUT_SECONDS") or "15")
+    graph_timeout = float(
+        os.getenv("GRAPH_HEALTH_TIMEOUT_SECONDS")
+        or os.getenv("GRAPH_TIMEOUT_SECONDS")
+        or "10"
+    )
+    smtp_timeout = float(
+        os.getenv("SMTP_HEALTH_TIMEOUT_SECONDS")
+        or os.getenv("SMTP_TIMEOUT_SECONDS")
+        or "15"
+    )
 
-    graph_result = await _run_with_timeout(graph_health_check, timeout_seconds=max(1.0, graph_timeout))
-    smtp_result = await _run_with_timeout(smtp_health_check, timeout_seconds=max(1.0, smtp_timeout))
+    graph_result = await _run_with_timeout(
+        graph_health_check, timeout_seconds=max(1.0, graph_timeout)
+    )
+    smtp_result = await _run_with_timeout(
+        smtp_health_check, timeout_seconds=max(1.0, smtp_timeout)
+    )
 
     status_result = await email_status()
     if status_result.graph_configured:
@@ -501,18 +560,25 @@ async def email_health_quick() -> EmailStatusResponse:
 @router.post("/email-test", response_model=EmailTestResponse)
 async def email_test(
     payload: EmailTestRequest,
-    x_admin_diagnostics_key: Optional[str] = Header(default=None, alias="X-Admin-Diagnostics-Key"),
+    x_admin_diagnostics_key: Optional[str] = Header(
+        default=None, alias="X-Admin-Diagnostics-Key"
+    ),
 ) -> EmailTestResponse:
     expected_key = (os.getenv("ADMIN_DIAGNOSTICS_KEY") or "").strip()
     if not expected_key:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Diagnostics disabled")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Diagnostics disabled",
+        )
     if x_admin_diagnostics_key != expected_key:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    from emailer import _graph_enabled, _send_via_graph
+    from app.services.emailer import _graph_enabled, _send_via_graph
 
     subject = payload.subject or "ErrandBridge email test"
-    body_text = payload.body_text or "This is a test email from the ErrandBridge backend."
+    body_text = (
+        payload.body_text or "This is a test email from the ErrandBridge backend."
+    )
 
     if _graph_enabled():
         result = await asyncio.to_thread(
@@ -537,7 +603,7 @@ async def email_test(
 
 @router.get("/sms-status", response_model=SmsStatusResponse)
 async def sms_status() -> SmsStatusResponse:
-    from sms_sender import Client as TwilioClient, _twilio_enabled
+    from app.services.sms_sender import Client as TwilioClient, _twilio_enabled
 
     default_country = (os.getenv("TWILIO_DEFAULT_COUNTRY_CODE") or "").strip() or None
     return SmsStatusResponse(
@@ -550,12 +616,17 @@ async def sms_status() -> SmsStatusResponse:
 @router.get("/admin-diagnostics", response_model=AdminDiagnosticsResponse)
 async def admin_diagnostics(
     email: EmailStr,
-    x_admin_diagnostics_key: Optional[str] = Header(default=None, alias="X-Admin-Diagnostics-Key"),
+    x_admin_diagnostics_key: Optional[str] = Header(
+        default=None, alias="X-Admin-Diagnostics-Key"
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> AdminDiagnosticsResponse:
     expected_key = (os.getenv("ADMIN_DIAGNOSTICS_KEY") or "").strip()
     if not expected_key:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Diagnostics disabled")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Diagnostics disabled",
+        )
     if x_admin_diagnostics_key != expected_key:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
@@ -570,21 +641,21 @@ async def admin_diagnostics(
         exists=True,
         is_email_verified=bool(user.is_email_verified),
         is_admin=user.email.lower() in admin_list,
+        must_change_password=user.must_change_password,
         user_id=user.id,
         user_uuid=_public_user_uuid(user),
     )
 
 
-def _build_otp_body(*, email: str, code: str, purpose: str, mode: OtpMode) -> tuple[str, str | None]:
+def _build_otp_body(
+    *, email: str, code: str, purpose: str, mode: OtpMode
+) -> tuple[str, str | None]:
     link = _build_otp_link(email, code)
     if mode in ("link", "both") and not link:
         mode = "code"
 
     if mode == "code":
-        body = (
-            f"Your security code is:\n\n{code}\n\n"
-            "It expires in 10 minutes."
-        )
+        body = f"Your security code is:\n\n{code}\n\n" "It expires in 10 minutes."
     elif mode == "link":
         body = (
             f"Use this link to complete {purpose}:\n\n{link}\n\n"
@@ -632,7 +703,9 @@ async def _send_otp_for_user(
     user.email_otp_attempts = 0
     await db.commit()
 
-    body_text, link = _build_otp_body(email=user.email, code=code, purpose=purpose, mode=mode)
+    body_text, link = _build_otp_body(
+        email=user.email, code=code, purpose=purpose, mode=mode
+    )
 
     if channel == "sms":
         try:
@@ -664,6 +737,7 @@ async def _send_otp_for_user(
         )
         if result.provider == "stdout":
             if channel != "sms" and user.phone:
+
                 async def _dispatch_stdout_sms_fallback() -> None:
                     try:
                         fallback = await asyncio.to_thread(
@@ -672,15 +746,20 @@ async def _send_otp_for_user(
                             body_text=body_text,
                         )
                         if not fallback.delivered:
-                            print(f"[OTP_SMS] Stdout fallback send failed for {purpose}: {fallback.detail}")
+                            print(
+                                f"[OTP_SMS] Stdout fallback send failed for {purpose}: {fallback.detail}"
+                            )
                     except Exception as sms_error:
-                        print(f"[OTP_SMS] Stdout fallback send failed for {purpose}: {sms_error}")
+                        print(
+                            f"[OTP_SMS] Stdout fallback send failed for {purpose}: {sms_error}"
+                        )
 
                 asyncio.create_task(_dispatch_stdout_sms_fallback())
             return
         if not result.delivered:
             print(f"[OTP_EMAIL] Send failed for {purpose}: {result.detail}")
             if channel != "sms" and user.phone:
+
                 async def _dispatch_sms_fallback() -> None:
                     try:
                         fallback = await asyncio.to_thread(
@@ -689,9 +768,13 @@ async def _send_otp_for_user(
                             body_text=body_text,
                         )
                         if not fallback.delivered:
-                            print(f"[OTP_SMS] Fallback send failed for {purpose}: {fallback.detail}")
+                            print(
+                                f"[OTP_SMS] Fallback send failed for {purpose}: {fallback.detail}"
+                            )
                     except Exception as sms_error:
-                        print(f"[OTP_SMS] Fallback send failed for {purpose}: {sms_error}")
+                        print(
+                            f"[OTP_SMS] Fallback send failed for {purpose}: {sms_error}"
+                        )
 
                 asyncio.create_task(_dispatch_sms_fallback())
                 return
@@ -706,6 +789,7 @@ async def _send_otp_for_user(
     except Exception as e:
         print(f"[OTP_EMAIL] Email send failed for {purpose}: {e}")
         if channel != "sms" and user.phone:
+
             async def _dispatch_sms_fallback() -> None:
                 try:
                     fallback = await asyncio.to_thread(
@@ -714,7 +798,9 @@ async def _send_otp_for_user(
                         body_text=body_text,
                     )
                     if not fallback.delivered:
-                        print(f"[OTP_SMS] Fallback send failed for {purpose}: {fallback.detail}")
+                        print(
+                            f"[OTP_SMS] Fallback send failed for {purpose}: {fallback.detail}"
+                        )
                 except Exception as sms_error:
                     print(f"[OTP_SMS] Fallback send failed for {purpose}: {sms_error}")
 
@@ -738,13 +824,17 @@ def _smoke_otp_code(env_var: str | None) -> str | None:
     # Never allow fixed/smoke OTPs outside explicit local/dev/test environments.
     # This protects prod even if ALLOW_SMOKE_OTPS accidentally gets set.
     env = (
-        os.getenv("ENV")
-        or os.getenv("BACKEND_ENVIRONMENT")
-        or os.getenv("ENVIRONMENT")
-        or os.getenv("APP_ENV")
-        or os.getenv("NODE_ENV")
-        or "local"
-    ).strip().lower()
+        (
+            os.getenv("ENV")
+            or os.getenv("BACKEND_ENVIRONMENT")
+            or os.getenv("ENVIRONMENT")
+            or os.getenv("APP_ENV")
+            or os.getenv("NODE_ENV")
+            or "local"
+        )
+        .strip()
+        .lower()
+    )
     if env not in ("local", "dev", "development", "test", "testing"):
         return None
 
@@ -754,19 +844,27 @@ def _smoke_otp_code(env_var: str | None) -> str | None:
 
 def _check_otp(user: User, code: str) -> None:
     if not user.email_otp_hash or not user.email_otp_expires_at:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No pending code")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="No pending code"
+        )
 
     if now_ts() > int(user.email_otp_expires_at):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Code expired")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Code expired"
+        )
 
     attempts = int(user.email_otp_attempts or 0)
     if attempts >= 8:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many attempts"
+        )
 
     expected = user.email_otp_hash
     if hash_code(code) != expected:
         user.email_otp_attempts = attempts + 1
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code"
+        )
 
 
 def _clear_otp(user: User) -> None:
@@ -776,7 +874,9 @@ def _clear_otp(user: User) -> None:
     user.email_otp_attempts = 0
 
 
-def _build_auth_response(user: User, *, is_email_verified: Optional[bool] = None) -> AuthResponse:
+def _build_auth_response(
+    user: User, *, is_email_verified: Optional[bool] = None
+) -> AuthResponse:
     is_admin = user.email.lower() in admin_emails()
     return AuthResponse(
         access_token=create_access_token(user_id=user.id),
@@ -787,8 +887,13 @@ def _build_auth_response(user: User, *, is_email_verified: Optional[bool] = None
         first_name=user.first_name,
         last_name=user.last_name,
         phone=user.phone,
-        is_email_verified=bool(user.is_email_verified) if is_email_verified is None else is_email_verified,
+        is_email_verified=(
+            bool(user.is_email_verified)
+            if is_email_verified is None
+            else is_email_verified
+        ),
         is_admin=is_admin,
+        must_change_password=user.must_change_password,
     )
 
 
@@ -820,15 +925,23 @@ async def _get_user_by_identifier(db: AsyncSession, identifier: str) -> Optional
     return await _get_user_by_email(db, raw)
 
 
-def _resolve_signup_identity(payload: SignupRequest, role: str) -> tuple[str, Optional[str], str]:
+def _resolve_signup_identity(
+    payload: SignupRequest, role: str
+) -> tuple[str, Optional[str], str]:
     raw_identifier = (payload.email or "").strip()
     raw_phone = (payload.phone or "").strip()
 
     if is_phone_identifier(raw_identifier):
         normalized_phone = normalize_phone_for_storage(raw_phone or raw_identifier)
         if not normalized_phone:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number")
-        return build_phone_alias_email(normalized_phone, role=role), normalized_phone, "phone"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid phone number"
+            )
+        return (
+            build_phone_alias_email(normalized_phone, role=role),
+            normalized_phone,
+            "phone",
+        )
 
     normalized_email = _normalize_email_identifier(raw_identifier)
 
@@ -851,7 +964,10 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
 def _normalize_role(role: Optional[str]) -> str:
     normalized = (role or "client").strip().lower()
     if normalized not in {"client", "pilot"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role. Use client or pilot.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid role. Use client or pilot.",
+        )
     return normalized
 
 
@@ -867,12 +983,16 @@ def _derive_names_from_email(email: str) -> tuple[str, str]:
 
 def _verify_google_credential(credential: str) -> dict:
     raw_client_ids = (
-        os.getenv("GOOGLE_OAUTH_CLIENT_IDS")
-        or os.getenv("GOOGLE_CLIENT_IDS")
-        or ""
+        os.getenv("GOOGLE_OAUTH_CLIENT_IDS") or os.getenv("GOOGLE_CLIENT_IDS") or ""
     ).strip()
-    client_ids = [client_id.strip() for client_id in raw_client_ids.split(",") if client_id.strip()]
-    legacy_client_id = (os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID") or "").strip()
+    client_ids = [
+        client_id.strip()
+        for client_id in raw_client_ids.split(",")
+        if client_id.strip()
+    ]
+    legacy_client_id = (
+        os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID") or ""
+    ).strip()
     if legacy_client_id:
         client_ids.append(legacy_client_id)
     client_ids = list(dict.fromkeys(client_ids))
@@ -899,18 +1019,28 @@ def _verify_google_credential(credential: str) -> dict:
             detail="Google sign-in dependency is missing",
         )
     except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google credential")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google credential"
+        )
 
     if not info.get("email"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Google account missing email")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google account missing email",
+        )
     if info.get("email_verified") is False:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google email is not verified")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google email is not verified",
+        )
     return info
 
 
 def _allowed_oauth_origins() -> set[str]:
     # Prefer explicit OAUTH_ALLOWED_ORIGINS; fall back to CORS_ALLOW_ORIGINS.
-    raw = (os.getenv("OAUTH_ALLOWED_ORIGINS") or os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
+    raw = (
+        os.getenv("OAUTH_ALLOWED_ORIGINS") or os.getenv("CORS_ALLOW_ORIGINS") or ""
+    ).strip()
     values = [v.strip().rstrip("/") for v in raw.split(",") if v.strip()]
     allowed = set(values)
     if allowed and not _is_production_env():
@@ -939,24 +1069,34 @@ def _oauth_origin_status(origin: str) -> tuple[str, bool, str]:
 def _validate_frontend_origin(origin: str) -> str:
     origin = (origin or "").strip().rstrip("/")
     if not origin:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing origin")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Missing origin"
+        )
     parsed = urlparse(origin)
     if parsed.scheme not in {"https", "http"} or not parsed.netloc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid origin")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid origin"
+        )
     allowed = _allowed_oauth_origins()
     if allowed and origin not in allowed:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Origin is not allowed")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Origin is not allowed"
+        )
     return origin
 
 
 def _google_oauth_token_config_status() -> tuple[bool, str]:
     raw_client_ids = (
-        os.getenv("GOOGLE_OAUTH_CLIENT_IDS")
-        or os.getenv("GOOGLE_CLIENT_IDS")
-        or ""
+        os.getenv("GOOGLE_OAUTH_CLIENT_IDS") or os.getenv("GOOGLE_CLIENT_IDS") or ""
     ).strip()
-    client_ids = [client_id.strip() for client_id in raw_client_ids.split(",") if client_id.strip()]
-    legacy_client_id = (os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID") or "").strip()
+    client_ids = [
+        client_id.strip()
+        for client_id in raw_client_ids.split(",")
+        if client_id.strip()
+    ]
+    legacy_client_id = (
+        os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID") or ""
+    ).strip()
     if legacy_client_id:
         client_ids.append(legacy_client_id)
 
@@ -984,7 +1124,9 @@ def _apple_oauth_redirect_config_status(*, role: str) -> tuple[bool, str]:
     return True, ""
 
 
-def _build_oauth_flow_status(*, configured: bool, origin_allowed: bool, reason: str = "") -> OAuthFlowStatus:
+def _build_oauth_flow_status(
+    *, configured: bool, origin_allowed: bool, reason: str = ""
+) -> OAuthFlowStatus:
     enabled = bool(configured and origin_allowed)
     return OAuthFlowStatus(
         enabled=enabled,
@@ -1025,12 +1167,16 @@ def _create_oauth_state(
 
 def _decode_oauth_state(state: str) -> dict[str, Any]:
     try:
-        data = jose_jwt.decode(state, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM], audience="oauth-state")
+        data = jose_jwt.decode(
+            state, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM], audience="oauth-state"
+        )
         if not isinstance(data, dict):
             raise ValueError("Invalid state")
         return data
     except (JWTError, ValueError):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired state")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired state"
+        )
 
 
 def _validate_native_redirect_uri(value: str | None) -> str:
@@ -1039,7 +1185,10 @@ def _validate_native_redirect_uri(value: str | None) -> str:
         return ""
     parsed = urlparse(uri)
     if parsed.scheme != "errandbridge" or parsed.netloc != "auth":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid native redirect URI")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid native redirect URI",
+        )
     return uri
 
 
@@ -1058,7 +1207,10 @@ async def _get_jwks(jwks_url: str) -> dict[str, Any]:
         resp.raise_for_status()
         jwks = resp.json()
         if not isinstance(jwks, dict) or "keys" not in jwks:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid JWKS response")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid JWKS response",
+            )
         _JWKS_CACHE[jwks_url] = (now, jwks)
         return jwks
 
@@ -1072,18 +1224,24 @@ async def _verify_oidc_id_token(
     nonce: str | None = None,
 ) -> dict[str, Any]:
     if not id_token or len(id_token) < 10:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing id_token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing id_token"
+        )
     try:
         header = jose_jwt.get_unverified_header(id_token)
         kid = header.get("kid")
     except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid id_token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid id_token"
+        )
 
     jwks = await _get_jwks(jwks_url)
     keys = jwks.get("keys") or []
     key = next((k for k in keys if k.get("kid") == kid), None)
     if not key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown token key")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown token key"
+        )
     try:
         claims = jose_jwt.decode(
             id_token,
@@ -1093,12 +1251,16 @@ async def _verify_oidc_id_token(
             issuer=issuer,
         )
         if nonce and claims.get("nonce") != nonce:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token nonce")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token nonce"
+            )
         return claims
     except HTTPException:
         raise
     except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid id_token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid id_token"
+        )
 
 
 def _api_timestamp() -> str:
@@ -1128,17 +1290,17 @@ def _decode_login_link_token(link_token: str) -> dict[str, Any]:
             raise ValueError("Invalid link token")
         return data
     except (JWTError, ValueError):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired link token")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired link token",
+        )
 
 
 async def _get_user_from_login_link_token(db: AsyncSession, link_token: str) -> User:
     data = _decode_login_link_token(link_token)
     subject = str(data.get("sub") or "").strip()
     identifier = str(
-        data.get("identifier")
-        or data.get("email")
-        or data.get("phone")
-        or ""
+        data.get("identifier") or data.get("email") or data.get("phone") or ""
     ).strip()
 
     user: User | None = None
@@ -1156,7 +1318,10 @@ async def _get_user_from_login_link_token(db: AsyncSession, link_token: str) -> 
         user = await _get_user_by_identifier(db, identifier)
 
     if not user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired link token")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired link token",
+        )
     return user
 
 
@@ -1168,8 +1333,14 @@ def _assert_user_role_allowed(user: User, role: str) -> None:
         )
 
 
-def _login_code_destination(user: User, requested_channel: OtpChannel) -> tuple[OtpChannel, str | None]:
-    channel: OtpChannel = requested_channel if requested_channel in ("email", "sms") else DEFAULT_OTP_CHANNEL
+def _login_code_destination(
+    user: User, requested_channel: OtpChannel
+) -> tuple[OtpChannel, str | None]:
+    channel: OtpChannel = (
+        requested_channel
+        if requested_channel in ("email", "sms")
+        else DEFAULT_OTP_CHANNEL
+    )
     if channel == "sms" and not user.phone:
         channel = "email"
     if channel == "sms":
@@ -1191,9 +1362,13 @@ async def login_request_code(
     _assert_user_role_allowed(user, role)
 
     if not user.is_email_verified:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified"
+        )
 
-    delivery_channel, masked_destination = _login_code_destination(user, payload.otp_delivery_channel)
+    delivery_channel, masked_destination = _login_code_destination(
+        user, payload.otp_delivery_channel
+    )
     await _send_otp_for_user(
         db,
         user,
@@ -1230,7 +1405,9 @@ async def login_verify_code(
     _assert_user_role_allowed(user, role)
 
     if not user.is_email_verified:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified"
+        )
 
     try:
         _check_otp(user, payload.code)
@@ -1243,7 +1420,9 @@ async def login_verify_code(
     await db.commit()
 
     session_minutes = _login_code_session_minutes()
-    session_token = create_access_token(user_id=user.id, expires_minutes=session_minutes)
+    session_token = create_access_token(
+        user_id=user.id, expires_minutes=session_minutes
+    )
     refresh_token = create_refresh_token(user_id=user.id)
     return LoginCodeVerifyResponse(
         status="SUCCESS",
@@ -1274,7 +1453,10 @@ async def _get_or_create_oauth_user(
     role = _normalize_role(role)
     email = (email or "").strip().lower()
     if not email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provider account missing email")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provider account missing email",
+        )
 
     user = await _get_user_by_email(db, email)
     if user:
@@ -1282,7 +1464,10 @@ async def _get_or_create_oauth_user(
             if allow_pilot_signup:
                 user.is_pilot = True
             else:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account is not registered as a pilot")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="This account is not registered as a pilot",
+                )
         if not user.is_email_verified:
             user.is_email_verified = True
         return user
@@ -1306,15 +1491,25 @@ async def _get_or_create_oauth_user(
         last_name=ln or "",
         is_email_verified=True,
         is_pilot=(role == "pilot"),
-        address_verification_status=("pending_manual" if role == "pilot" else "pending"),
+        address_verification_status=(
+            "pending_manual" if role == "pilot" else "pending"
+        ),
         id_verification_status=("pending" if role == "pilot" else "pending"),
     )
     db.add(user)
     return user
 
 
-def _oauth_popup_result_html(*, origin: str, ok: bool, provider: str, access_token: str = "", error: str = "", native_redirect_uri: str = "") -> str:
-    safe_origin = origin.replace("\"", "")
+def _oauth_popup_result_html(
+    *,
+    origin: str,
+    ok: bool,
+    provider: str,
+    access_token: str = "",
+    error: str = "",
+    native_redirect_uri: str = "",
+) -> str:
+    safe_origin = origin.replace('"', "")
     payload = {
         "type": "errandbridge_oauth_result",
         "ok": bool(ok),
@@ -1325,14 +1520,21 @@ def _oauth_popup_result_html(*, origin: str, ok: bool, provider: str, access_tok
     native_redirect_url = ""
     if native_redirect_uri:
         separator = "&" if "?" in native_redirect_uri else "?"
-        native_redirect_url = native_redirect_uri + separator + urlencode({
-            "ok": "1" if ok else "0",
-            "provider": provider,
-            "access_token": access_token or "",
-            "error": error or "",
-        })
+        native_redirect_url = (
+            native_redirect_uri
+            + separator
+            + urlencode(
+                {
+                    "ok": "1" if ok else "0",
+                    "provider": provider,
+                    "access_token": access_token or "",
+                    "error": error or "",
+                }
+            )
+        )
     # This page is served from the API domain; it posts a message back to the frontend origin.
-    return """<!doctype html>
+    return (
+        """<!doctype html>
 <html lang=\"en\">
   <head>
     <meta charset=\"utf-8\" />
@@ -1347,9 +1549,15 @@ def _oauth_popup_result_html(*, origin: str, ok: bool, provider: str, access_tok
         </button>
     <script>
       (function () {
-        var targetOrigin = """ + json.dumps(safe_origin) + """;
-        var payload = """ + json.dumps(payload) + """;
-        var nativeRedirectUrl = """ + json.dumps(native_redirect_url) + """;
+        var targetOrigin = """
+        + json.dumps(safe_origin)
+        + """;
+        var payload = """
+        + json.dumps(payload)
+        + """;
+        var nativeRedirectUrl = """
+        + json.dumps(native_redirect_url)
+        + """;
                 try {
                     var statusEl = document.getElementById('status');
                     var detailEl = document.getElementById('detail');
@@ -1391,6 +1599,7 @@ def _oauth_popup_result_html(*, origin: str, ok: bool, provider: str, access_tok
     </script>
   </body>
 </html>"""
+    )
 
 
 def _apple_private_key() -> str:
@@ -1419,7 +1628,10 @@ def _apple_client_secret(*, client_id: str) -> str:
     client_id = (client_id or "").strip()
     private_key = _apple_private_key()
     if not (team_id and key_id and client_id and private_key):
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Apple sign-in is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Apple sign-in is not configured",
+        )
 
     now = int(time.time())
     # Apple allows up to 6 months; keep it short-lived.
@@ -1435,7 +1647,10 @@ def _apple_client_secret(*, client_id: str) -> str:
     try:
         return jose_jwt.encode(payload, private_key, algorithm="ES256", headers=headers)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to generate Apple client secret")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to generate Apple client secret",
+        )
 
 
 def _apple_oauth_config(*, role: str) -> tuple[str, str]:
@@ -1448,9 +1663,7 @@ def _apple_oauth_config(*, role: str) -> tuple[str, str]:
     role = _normalize_role(role)
     if role == "pilot":
         client_id = (
-            os.getenv("APPLE_PILOT_CLIENT_ID")
-            or os.getenv("APPLE_CLIENT_ID")
-            or ""
+            os.getenv("APPLE_PILOT_CLIENT_ID") or os.getenv("APPLE_CLIENT_ID") or ""
         ).strip()
         redirect_uri = (
             os.getenv("APPLE_PILOT_REDIRECT_URI")
@@ -1492,9 +1705,7 @@ def _google_oauth_config(*, role: str) -> tuple[str, str, str]:
         ).strip()
     else:
         client_id = (
-            os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-            or os.getenv("GOOGLE_CLIENT_ID")
-            or ""
+            os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID") or ""
         ).strip()
         client_secret = (
             os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
@@ -1507,11 +1718,16 @@ def _google_oauth_config(*, role: str) -> tuple[str, str, str]:
             or ""
         ).strip()
     if not (client_id and client_secret and redirect_uri):
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Google OAuth is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google OAuth is not configured",
+        )
     return client_id, client_secret, redirect_uri
 
 
-async def _verify_google_id_token(*, id_token: str, audience: str, nonce: str | None) -> dict[str, Any]:
+async def _verify_google_id_token(
+    *, id_token: str, audience: str, nonce: str | None
+) -> dict[str, Any]:
     # Google may use either issuer value.
     last_error: HTTPException | None = None
     for issuer in ("https://accounts.google.com", "accounts.google.com"):
@@ -1526,7 +1742,9 @@ async def _verify_google_id_token(*, id_token: str, audience: str, nonce: str | 
         except HTTPException as e:
             last_error = e
             continue
-    raise last_error or HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid id_token")
+    raise last_error or HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid id_token"
+    )
 
 
 @router.get("/oauth/status", response_model=OAuthStatusResponse)
@@ -1537,9 +1755,13 @@ async def oauth_status(
     role = _normalize_role(role)
     normalized_origin, origin_allowed, origin_reason = _oauth_origin_status(origin)
 
-    google_redirect_configured, google_redirect_reason = _google_oauth_redirect_config_status(role=role)
+    google_redirect_configured, google_redirect_reason = (
+        _google_oauth_redirect_config_status(role=role)
+    )
     google_token_configured, google_token_reason = _google_oauth_token_config_status()
-    apple_redirect_configured, apple_redirect_reason = _apple_oauth_redirect_config_status(role=role)
+    apple_redirect_configured, apple_redirect_reason = (
+        _apple_oauth_redirect_config_status(role=role)
+    )
 
     return OAuthStatusResponse(
         origin=normalized_origin,
@@ -1582,10 +1804,18 @@ async def apple_oauth_start(
     if not (client_id and redirect_uri):
         if popup:
             return HTMLResponse(
-                content=_oauth_popup_result_html(origin=origin, ok=False, provider="apple", error="Apple sign-in is not configured"),
+                content=_oauth_popup_result_html(
+                    origin=origin,
+                    ok=False,
+                    provider="apple",
+                    error="Apple sign-in is not configured",
+                ),
                 status_code=status.HTTP_200_OK,
             )
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Apple sign-in is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Apple sign-in is not configured",
+        )
 
     nonce = secrets.token_urlsafe(18)
     state = _create_oauth_state(
@@ -1620,7 +1850,9 @@ async def apple_oauth_callback(
 ) -> HTMLResponse:
     data = _decode_oauth_state(state)
     if data.get("provider") != "apple":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid provider state")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid provider state"
+        )
     origin = _validate_frontend_origin(str(data.get("origin") or ""))
     role = _normalize_role(str(data.get("role") or "client"))
     nonce = (data.get("nonce") or "").strip() or None
@@ -1660,7 +1892,9 @@ async def apple_oauth_callback(
         if user:
             try:
                 user_obj = json.loads(user)
-                name = (user_obj.get("name") or {}) if isinstance(user_obj, dict) else {}
+                name = (
+                    (user_obj.get("name") or {}) if isinstance(user_obj, dict) else {}
+                )
                 first_name = (name.get("firstName") or "").strip()
                 last_name = (name.get("lastName") or "").strip()
             except Exception:
@@ -1678,17 +1912,35 @@ async def apple_oauth_callback(
         await db.refresh(app_user)
         access_token = create_access_token(user_id=app_user.id)
         return HTMLResponse(
-            content=_oauth_popup_result_html(origin=origin, ok=True, provider="apple", access_token=access_token, native_redirect_uri=native_redirect_uri),
+            content=_oauth_popup_result_html(
+                origin=origin,
+                ok=True,
+                provider="apple",
+                access_token=access_token,
+                native_redirect_uri=native_redirect_uri,
+            ),
             status_code=status.HTTP_200_OK,
         )
     except HTTPException as e:
         return HTMLResponse(
-            content=_oauth_popup_result_html(origin=origin, ok=False, provider="apple", error=str(e.detail), native_redirect_uri=native_redirect_uri),
+            content=_oauth_popup_result_html(
+                origin=origin,
+                ok=False,
+                provider="apple",
+                error=str(e.detail),
+                native_redirect_uri=native_redirect_uri,
+            ),
             status_code=status.HTTP_200_OK,
         )
     except Exception:
         return HTMLResponse(
-            content=_oauth_popup_result_html(origin=origin, ok=False, provider="apple", error="Apple sign-in failed", native_redirect_uri=native_redirect_uri),
+            content=_oauth_popup_result_html(
+                origin=origin,
+                ok=False,
+                provider="apple",
+                error="Apple sign-in failed",
+                native_redirect_uri=native_redirect_uri,
+            ),
             status_code=status.HTTP_200_OK,
         )
 
@@ -1710,7 +1962,9 @@ async def google_oauth_start(
     except HTTPException as e:
         if popup:
             return HTMLResponse(
-                content=_oauth_popup_result_html(origin=origin, ok=False, provider="google", error=str(e.detail)),
+                content=_oauth_popup_result_html(
+                    origin=origin, ok=False, provider="google", error=str(e.detail)
+                ),
                 status_code=status.HTTP_200_OK,
             )
         raise
@@ -1749,7 +2003,9 @@ async def google_oauth_callback(
 ) -> HTMLResponse:
     data = _decode_oauth_state(state)
     if data.get("provider") != "google":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid provider state")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid provider state"
+        )
     origin = _validate_frontend_origin(str(data.get("origin") or ""))
     role = _normalize_role(str(data.get("role") or "client"))
     nonce = (data.get("nonce") or "").strip() or None
@@ -1759,12 +2015,24 @@ async def google_oauth_callback(
     if error:
         message = (error_description or error or "Google sign-in failed").strip()
         return HTMLResponse(
-            content=_oauth_popup_result_html(origin=origin, ok=False, provider="google", error=message, native_redirect_uri=native_redirect_uri),
+            content=_oauth_popup_result_html(
+                origin=origin,
+                ok=False,
+                provider="google",
+                error=message,
+                native_redirect_uri=native_redirect_uri,
+            ),
             status_code=status.HTTP_200_OK,
         )
     if not code:
         return HTMLResponse(
-            content=_oauth_popup_result_html(origin=origin, ok=False, provider="google", error="Missing authorization code", native_redirect_uri=native_redirect_uri),
+            content=_oauth_popup_result_html(
+                origin=origin,
+                ok=False,
+                provider="google",
+                error="Missing authorization code",
+                native_redirect_uri=native_redirect_uri,
+            ),
             status_code=status.HTTP_200_OK,
         )
 
@@ -1784,11 +2052,16 @@ async def google_oauth_callback(
             resp.raise_for_status()
             token_payload = resp.json()
             id_token = token_payload.get("id_token") or ""
-            claims = await _verify_google_id_token(id_token=id_token, audience=client_id, nonce=nonce)
+            claims = await _verify_google_id_token(
+                id_token=id_token, audience=client_id, nonce=nonce
+            )
 
         email = (claims.get("email") or "").strip().lower()
         if claims.get("email_verified") is False:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google email is not verified")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google email is not verified",
+            )
         first_name = (claims.get("given_name") or "").strip()
         last_name = (claims.get("family_name") or "").strip()
 
@@ -1804,30 +2077,55 @@ async def google_oauth_callback(
         await db.refresh(app_user)
         access_token = create_access_token(user_id=app_user.id)
         return HTMLResponse(
-            content=_oauth_popup_result_html(origin=origin, ok=True, provider="google", access_token=access_token, native_redirect_uri=native_redirect_uri),
+            content=_oauth_popup_result_html(
+                origin=origin,
+                ok=True,
+                provider="google",
+                access_token=access_token,
+                native_redirect_uri=native_redirect_uri,
+            ),
             status_code=status.HTTP_200_OK,
         )
     except HTTPException as e:
         return HTMLResponse(
-            content=_oauth_popup_result_html(origin=origin, ok=False, provider="google", error=str(e.detail), native_redirect_uri=native_redirect_uri),
+            content=_oauth_popup_result_html(
+                origin=origin,
+                ok=False,
+                provider="google",
+                error=str(e.detail),
+                native_redirect_uri=native_redirect_uri,
+            ),
             status_code=status.HTTP_200_OK,
         )
     except Exception:
         return HTMLResponse(
-            content=_oauth_popup_result_html(origin=origin, ok=False, provider="google", error="Google sign-in failed", native_redirect_uri=native_redirect_uri),
+            content=_oauth_popup_result_html(
+                origin=origin,
+                ok=False,
+                provider="google",
+                error="Google sign-in failed",
+                native_redirect_uri=native_redirect_uri,
+            ),
             status_code=status.HTTP_200_OK,
         )
 
+
 @router.post("/signup", response_model=AuthResponse)
-async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)) -> AuthResponse:
+async def signup(
+    payload: SignupRequest, db: AsyncSession = Depends(get_db)
+) -> AuthResponse:
     import os
     from database import DATABASE_URL, _redact_database_url
+
     disable_email_confirmation = is_email_confirmation_disabled()
     role = _normalize_role(payload.role)
     email, normalized_phone, identifier_kind = _resolve_signup_identity(payload, role)
 
     print(f"[SIGNUP] Signup attempt for: {email}", flush=True)
-    print(f"[SIGNUP] Database URL being used: {_redact_database_url(DATABASE_URL)}", flush=True)
+    print(
+        f"[SIGNUP] Database URL being used: {_redact_database_url(DATABASE_URL)}",
+        flush=True,
+    )
     print(f"[SIGNUP] ENV={os.getenv('ENV')}", flush=True)
     try:
         existing = (
@@ -1835,7 +2133,9 @@ async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
             if identifier_kind == "phone"
             else await _get_user_by_email(db, email)
         )
-        phone_owner = await _get_user_by_phone(db, normalized_phone) if normalized_phone else None
+        phone_owner = (
+            await _get_user_by_phone(db, normalized_phone) if normalized_phone else None
+        )
         print(f"[SIGNUP] Email lookup result - existing user: {existing}", flush=True)
     except Exception as e:
         print(f"[SIGNUP] Error during email lookup: {e}", flush=True)
@@ -1843,8 +2143,14 @@ async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
 
     if phone_owner and (not existing or phone_owner.id != existing.id):
         if phone_owner.is_pilot != (role == "pilot"):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone number already registered for a different account type")
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone number already registered")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Phone number already registered for a different account type",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Phone number already registered",
+        )
 
     first_name = (payload.first_name or "").strip()
     last_name = (payload.last_name or "").strip()
@@ -1857,7 +2163,10 @@ async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
     if existing:
         if existing.is_pilot != (role == "pilot"):
             conflict_label = "Phone number" if identifier_kind == "phone" else "Email"
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"{conflict_label} already registered for a different account type")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{conflict_label} already registered for a different account type",
+            )
         if not existing.is_email_verified:
             if disable_email_confirmation:
                 existing.is_email_verified = True
@@ -1871,14 +2180,22 @@ async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
                 db,
                 existing,
                 purpose="signup confirmation",
-                channel=("sms" if identifier_kind == "phone" else payload.otp_delivery_channel),
+                channel=(
+                    "sms"
+                    if identifier_kind == "phone"
+                    else payload.otp_delivery_channel
+                ),
                 mode=payload.otp_delivery_mode,
                 smoke_env="SMOKE_OTP_CODE",
             )
             return _build_auth_response(existing)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=("Phone number already registered" if identifier_kind == "phone" else "Email already registered"),
+            detail=(
+                "Phone number already registered"
+                if identifier_kind == "phone"
+                else "Email already registered"
+            ),
         )
 
     user = User(
@@ -1888,20 +2205,28 @@ async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
         last_name=last_name,
         phone=normalized_phone,
         id_verification_method=("offline" if payload.id_collected_offline else None),
-        id_verification_status=("pending" if payload.id_collected_offline else "pending"),
+        id_verification_status=(
+            "pending" if payload.id_collected_offline else "pending"
+        ),
         address_line1=payload.address_line1,
         address_line2=payload.address_line2,
         city=payload.city,
         state=payload.state,
         postal_code=payload.postal_code,
         country=payload.country,
-        address_verification_status=("pending" if any([
-            payload.address_line1,
-            payload.city,
-            payload.state,
-            payload.postal_code,
-            payload.country,
-        ]) else "pending"),
+        address_verification_status=(
+            "pending"
+            if any(
+                [
+                    payload.address_line1,
+                    payload.city,
+                    payload.state,
+                    payload.postal_code,
+                    payload.country,
+                ]
+            )
+            else "pending"
+        ),
         is_email_verified=disable_email_confirmation,
         is_pilot=(role == "pilot"),
     )
@@ -1914,7 +2239,9 @@ async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
             db,
             user,
             purpose="signup confirmation",
-            channel=("sms" if identifier_kind == "phone" else payload.otp_delivery_channel),
+            channel=(
+                "sms" if identifier_kind == "phone" else payload.otp_delivery_channel
+            ),
             mode=payload.otp_delivery_mode,
             smoke_env="SMOKE_OTP_CODE",
         )
@@ -1924,7 +2251,9 @@ async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
 
 
 @router.post("/swagger-login", include_in_schema=False)
-async def swagger_login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+async def swagger_login(
+    form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)
+):
     """Dedicated login endpoint for Swagger UI's Authorize button."""
     payload = LoginRequest(email=form_data.username, password=form_data.password)
     auth_response = await login(payload=payload, db=db)
@@ -1932,23 +2261,50 @@ async def swagger_login(form_data: OAuth2PasswordRequestForm = Depends(), db: As
 
 
 @router.post("/otp/request")
-async def otp_request(payload: OtpSendRequestSimple, db: AsyncSession = Depends(get_db)):
+async def otp_request(
+    payload: OtpSendRequestSimple, db: AsyncSession = Depends(get_db)
+):
+    import secrets
+    import string
+    
     identifier = payload.email.strip()
     try:
         user = await _get_user_by_identifier(db, identifier)
     except Exception:
         user = None
-    
+
     if not user:
-        # Prevent user enumeration
-        return {"success": True, "message": "If the email is registered, an OTP has been sent."}
-    
+        # If they provided first_name and last_name, treat as signup via OTP
+        if payload.first_name and payload.last_name:
+            alphabet = string.ascii_letters + string.digits + string.punctuation
+            random_password = ''.join(secrets.choice(alphabet) for i in range(16))
+            
+            user = User(
+                email=identifier,
+                password_hash=hash_password(random_password),
+                must_change_password=True,
+                first_name=payload.first_name,
+                last_name=payload.last_name,
+                is_pilot=(payload.role == "pilot")
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+        else:
+            # Prevent user enumeration
+            return {
+                "success": True,
+                "message": "If the email is registered, an OTP has been sent.",
+            }
+
     await _send_otp_for_user(db, user, purpose="login", channel="email", mode="code")
     return {"success": True, "message": "OTP sent successfully."}
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> AuthResponse:
+async def login(
+    payload: LoginRequest, db: AsyncSession = Depends(get_db)
+) -> AuthResponse:
     disable_email_confirmation = is_email_confirmation_disabled()
     identifier = (payload.email or "").strip()
     role = _normalize_role(payload.role)
@@ -1960,14 +2316,18 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Au
         print(f"[AUTH] Error during user lookup: {e}", flush=True)
         _raise_db_unavailable(e)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
+        )
 
     # Check OTP instead of password
     try:
         _check_otp(user, payload.password)
     except Exception as e:
         print(f"[AUTH] Error verifying OTP for {payload.email}: {e}", flush=True)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired code")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired code"
+        )
 
     # Clear OTP after successful login
     _clear_otp(user)
@@ -1992,7 +2352,9 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Au
 
 
 @router.post("/google", response_model=AuthResponse)
-async def google_auth(payload: GoogleAuthRequest, db: AsyncSession = Depends(get_db)) -> AuthResponse:
+async def google_auth(
+    payload: GoogleAuthRequest, db: AsyncSession = Depends(get_db)
+) -> AuthResponse:
     role = _normalize_role(payload.role)
     info = _verify_google_credential(payload.credential)
 
@@ -2006,7 +2368,9 @@ async def google_auth(payload: GoogleAuthRequest, db: AsyncSession = Depends(get
             role=role,
             first_name=given_name,
             last_name=family_name,
-            allow_pilot_signup=(payload.allow_pilot_signup if role == "pilot" else False),
+            allow_pilot_signup=(
+                payload.allow_pilot_signup if role == "pilot" else False
+            ),
         )
     except Exception as e:
         if isinstance(e, HTTPException):
@@ -2015,7 +2379,9 @@ async def google_auth(payload: GoogleAuthRequest, db: AsyncSession = Depends(get
         _raise_db_unavailable(e)
 
     if role == "pilot":
-        current_address_status = (user.address_verification_status or "").strip().lower()
+        current_address_status = (
+            (user.address_verification_status or "").strip().lower()
+        )
         if not current_address_status or current_address_status == "pending":
             user.address_verification_status = "pending_manual"
         if not user.id_verification_status:
@@ -2028,17 +2394,27 @@ async def google_auth(payload: GoogleAuthRequest, db: AsyncSession = Depends(get
 
 
 @router.post("/refresh", response_model=AuthResponse)
-async def refresh_session(payload: RefreshTokenRequest, db: AsyncSession = Depends(get_db)) -> AuthResponse:
+async def refresh_session(
+    payload: RefreshTokenRequest, db: AsyncSession = Depends(get_db)
+) -> AuthResponse:
     """Exchange a valid refresh token for a fresh access token and refresh token."""
     user_id = decode_refresh_token(payload.refresh_token)
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
 
     user = await db.get(User, int(user_id), options=AUTH_SAFE_USER_LOAD_OPTIONS)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
     if not user.is_email_verified:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified"
+        )
 
     return _build_auth_response(user)
 
@@ -2050,11 +2426,15 @@ async def me(
 ) -> MeResponse:
     token = _extract_bearer(authorization)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token"
+        )
 
     user_id = decode_access_token(token)
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
 
     try:
         user = await db.get(User, user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
@@ -2062,10 +2442,14 @@ async def me(
         print(f"[AUTH] /me failed to load user: {e}", flush=True)
         _raise_db_unavailable(e)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
 
     if not user.is_email_verified:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified"
+        )
 
     admin_emails_raw = os.getenv("ADMIN_EMAILS", "")
     admin_emails = {e.strip().lower() for e in admin_emails_raw.split(",") if e.strip()}
@@ -2119,6 +2503,7 @@ async def me(
         country=user.country,
         is_email_verified=bool(user.is_email_verified),
         is_admin=is_admin,
+        must_change_password=user.must_change_password,
         transparency={
             "completed_errands": int(completed_count),
             "documents_handled": int(docs_count),
@@ -2135,19 +2520,28 @@ async def change_password(
     """Change user's password (requires current password)"""
     token = _extract_bearer(authorization)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token"
+        )
 
     user_id = decode_access_token(token)
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
 
     user = await db.get(User, user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
 
     # Verify current password
     if not verify_password(payload.current_password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
 
     # Update to new password
     user.password_hash = hash_password(payload.new_password)
@@ -2163,15 +2557,21 @@ async def deactivate_account(
 ) -> DeactivateAccountResponse:
     token = _extract_bearer(authorization)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token"
+        )
 
     user_id = decode_access_token(token)
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
 
     user = await db.get(User, user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
 
     random_suffix = secrets.token_hex(4)
     anonymized_email = f"deleted+{user.id}-{random_suffix}@errandbridge.com"
@@ -2226,18 +2626,26 @@ async def update_profile(
 ) -> UpdateProfileResponse:
     token = _extract_bearer(authorization)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token"
+        )
 
     user_id = decode_access_token(token)
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
 
     user = await db.get(User, user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
 
     if not user.is_email_verified:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified"
+        )
 
     await db.execute(
         update(User)
@@ -2262,34 +2670,17 @@ async def update_profile(
     )
 
 
-    user.street_address = None
-    user.state_province = None
-    user.vehicle_type = None
-    user.vehicle_make = None
-    user.vehicle_model = None
-    user.vehicle_year = None
-    user.license_plate = None
-    user.insurance_provider = None
-    user.insurance_expiry = None
-    user.password_hash = hash_password(secrets.token_urlsafe(18))
-
-    await db.commit()
-
-    return {
-        "ok": True,
-        "message": "Account deactivated and profile data removed.",
-        "user_id": user.id,
-    }
-
-
-
 @router.post("/confirm", response_model=ConfirmResponse)
-async def confirm_email(payload: ConfirmRequest, db: AsyncSession = Depends(get_db)) -> ConfirmResponse:
+async def confirm_email(
+    payload: ConfirmRequest, db: AsyncSession = Depends(get_db)
+) -> ConfirmResponse:
     disable_email_confirmation = is_email_confirmation_disabled()
     user = await _get_user_by_identifier(db, payload.email)
     if not user:
         # Don't leak which emails exist.
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code"
+        )
 
     if disable_email_confirmation:
         if not user.is_email_verified:
@@ -2322,7 +2713,9 @@ async def confirm_email(payload: ConfirmRequest, db: AsyncSession = Depends(get_
 
 
 @router.post("/resend-confirmation", response_model=ConfirmResponse)
-async def resend_confirmation(payload: ResendRequest, db: AsyncSession = Depends(get_db)) -> ConfirmResponse:
+async def resend_confirmation(
+    payload: ResendRequest, db: AsyncSession = Depends(get_db)
+) -> ConfirmResponse:
     disable_email_confirmation = is_email_confirmation_disabled()
     if disable_email_confirmation:
         return ConfirmResponse(ok=True)
@@ -2382,7 +2775,9 @@ async def password_reset_confirm(
     user = await _get_user_by_identifier(db, payload.email)
     # Enumeration-safe-ish: use same error for unknown users.
     if not user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code"
+        )
 
     try:
         _check_otp(user, payload.code)
@@ -2410,20 +2805,30 @@ async def password_change_start(
     """Start password change (logged-in) by emailing an OTP."""
     token = _extract_bearer(authorization)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token"
+        )
 
     user_id = decode_access_token(token)
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
 
     user = await db.get(User, user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
 
     if not user.is_email_verified:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified"
+        )
 
-    await _send_otp_for_user(db, user, purpose="password change", smoke_env="SMOKE_PASSWORD_CHANGE_OTP")
+    await _send_otp_for_user(
+        db, user, purpose="password change", smoke_env="SMOKE_PASSWORD_CHANGE_OTP"
+    )
     return PasswordChangeStartResponse(ok=True)
 
 
@@ -2436,18 +2841,26 @@ async def password_change_confirm(
     """Confirm password change (logged-in) by verifying OTP and setting new password."""
     token = _extract_bearer(authorization)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token"
+        )
 
     user_id = decode_access_token(token)
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
 
     user = await db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
 
     if not user.is_email_verified:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified"
+        )
 
     try:
         _check_otp(user, payload.code)

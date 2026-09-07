@@ -6,7 +6,14 @@ import schema as schema_module
 
 
 class DummyUser:
-    def __init__(self, email: str, *, phone: str | None = None, is_pilot: bool = False, verified: bool = True):
+    def __init__(
+        self,
+        email: str,
+        *,
+        phone: str | None = None,
+        is_pilot: bool = False,
+        verified: bool = True,
+    ):
         self.id = 202
         self.email = email
         self.password_hash = "hashed-password"
@@ -15,7 +22,8 @@ class DummyUser:
         self.phone = phone
         self.is_email_verified = verified
         self.is_pilot = is_pilot
-
+        self.email_otp_hash = None
+        self.email_otp_expires_at = None
 
 class FakeDB:
     def __init__(self):
@@ -73,9 +81,13 @@ async def test_rest_login_accepts_phone_identifier(monkeypatch):
         assert identifier == "+1 (555) 555-1234"
         return user
 
-    monkeypatch.setattr(routes_auth, "_get_user_by_identifier", fake_get_user_by_identifier)
-    monkeypatch.setattr(routes_auth, "verify_password", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(routes_auth, "create_access_token", lambda user_id: f"token-{user_id}")
+    monkeypatch.setattr(
+        routes_auth, "_get_user_by_identifier", fake_get_user_by_identifier
+    )
+    monkeypatch.setattr(routes_auth, "_check_otp", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        routes_auth, "create_access_token", lambda user_id: f"token-{user_id}"
+    )
     monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
 
     response = await routes_auth.login(
@@ -84,7 +96,7 @@ async def test_rest_login_accepts_phone_identifier(monkeypatch):
             password="password123",
             role="client",
         ),
-        db=object(),
+        db=FakeDB(),
     )
 
     assert response.access_token == "token-202"
@@ -116,7 +128,9 @@ async def test_rest_signup_allows_phone_identifier_and_sends_sms_otp(monkeypatch
     monkeypatch.setattr(routes_auth, "_get_user_by_email", fake_get_user_by_email)
     monkeypatch.setattr(routes_auth, "_send_otp_for_user", fake_send_otp_for_user)
     monkeypatch.setattr(routes_auth, "hash_password", lambda value: f"hashed:{value}")
-    monkeypatch.setattr(routes_auth, "create_access_token", lambda user_id: f"token-{user_id}")
+    monkeypatch.setattr(
+        routes_auth, "create_access_token", lambda user_id: f"token-{user_id}"
+    )
     monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
     monkeypatch.setenv("DISABLE_EMAIL_CONFIRMATION", "false")
 

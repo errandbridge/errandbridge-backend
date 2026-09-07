@@ -86,7 +86,9 @@ def _ensure_runtime_platform(td: dict[str, Any]) -> None:
     td["runtimePlatform"] = runtime_platform
 
 
-def _update_container_image(td: dict[str, Any], container_name: str, image: str) -> None:
+def _update_container_image(
+    td: dict[str, Any], container_name: str, image: str
+) -> None:
     containers = td.get("containerDefinitions") or []
     found = False
     for c in containers:
@@ -118,7 +120,11 @@ def _wait_stable(cluster: str, service: str, timeout_s: int = 600) -> None:
         s = _json_load(out)
         deployments = s.get("deployments") or []
         primary = next((d for d in deployments if d.get("status") == "PRIMARY"), None)
-        if s.get("running") == s.get("desired") and primary and primary.get("rolloutState") == "COMPLETED":
+        if (
+            s.get("running") == s.get("desired")
+            and primary
+            and primary.get("rolloutState") == "COMPLETED"
+        ):
             return
         time.sleep(10)
 

@@ -19,13 +19,17 @@ class PromoCode(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     # For auditability.
-    created_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_by_admin_id = Column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True
+    )
     source = Column(String, nullable=True)  # e.g. 'review_reward', 'admin_manual'
 
     max_redemptions = Column(Integer, nullable=False, default=1)
     redeemed_count = Column(Integer, nullable=False, default=0)
 
     redeemed_at = Column(DateTime(timezone=True), nullable=True)
-    redeemed_errand_id = Column(Integer, ForeignKey("errands.id"), nullable=True, index=True)
+    redeemed_errand_id = Column(
+        Integer, ForeignKey("errands.id"), nullable=True, index=True
+    )
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -1,5 +1,6 @@
 import json
 import os
+
 os.environ["SMOKE_OTP_CODE"] = "123456"
 os.environ["SMOKE_PASSWORD_CHANGE_OTP"] = "123456"
 os.environ["SMOKE_PASSWORD_RESET_OTP"] = "123456"
@@ -16,7 +17,9 @@ def _in_docker() -> bool:
     return os.path.exists("/.dockerenv")
 
 
-def http_get(url: str, timeout: float = 10.0, headers: dict | None = None) -> tuple[int, str]:
+def http_get(
+    url: str, timeout: float = 10.0, headers: dict | None = None
+) -> tuple[int, str]:
     req = Request(url, method="GET", headers=headers or {})
     try:
         with urlopen(req, timeout=timeout) as resp:
@@ -66,7 +69,12 @@ def wait_for(base_url: str, seconds: float = 20.0) -> None:
         raise last_err
 
 
-def graphql(base_url: str, query: str, variables: dict | None = None, headers: dict | None = None) -> dict:
+def graphql(
+    base_url: str,
+    query: str,
+    variables: dict | None = None,
+    headers: dict | None = None,
+) -> dict:
     payload: dict = {"query": query}
     if variables is not None:
         payload["variables"] = variables
@@ -104,7 +112,9 @@ def main() -> int:
     print("[smoke] GET /metrics")
     status, body = http_get(f"{base_url}/metrics")
     assert status == 200, f"Expected 200, got {status}"
-    assert "# HELP" in body and "# TYPE" in body, "Expected Prometheus exposition format"
+    assert (
+        "# HELP" in body and "# TYPE" in body
+    ), "Expected Prometheus exposition format"
 
     # 3b) Prompt suggest
     print("[smoke] POST /prompt/suggest")
@@ -116,7 +126,9 @@ def main() -> int:
         },
     )
     assert status == 200, f"Expected 200, got {status}: {body}"
-    assert isinstance(body.get("title"), str) and body["title"], "Expected non-empty title"
+    assert (
+        isinstance(body.get("title"), str) and body["title"]
+    ), "Expected non-empty title"
     assert isinstance(body.get("description"), str), "Expected description string"
 
     # 4) GraphQL list
@@ -237,7 +249,11 @@ def main() -> int:
     reset_password = "password789"
     status, body = http_post_json(
         f"{base_url}/auth/password-reset/confirm",
-        {"email": email, "code": str(reset_otp).strip(), "new_password": reset_password},
+        {
+            "email": email,
+            "code": str(reset_otp).strip(),
+            "new_password": reset_password,
+        },
     )
     assert status == 200, f"Expected 200, got {status}: {body}"
 
@@ -318,7 +334,7 @@ def main() -> int:
     sent = graphql(
         base_url,
         "mutation($input: SendErrandConfirmationInput!) { sendErrandConfirmation(input: $input) }",
-        variables={"input": {"id": int(created["id"]) }},
+        variables={"input": {"id": int(created["id"])}},
         headers={"Authorization": f"Bearer {token}"},
     )["sendErrandConfirmation"]
     assert sent is True

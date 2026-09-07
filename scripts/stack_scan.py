@@ -61,7 +61,9 @@ async def _fetch_json(client: httpx.AsyncClient, url: str) -> Any:
     return res.json()
 
 
-async def _db_country_counts(*, dsn: str, since_epoch_s: float) -> dict[str | None, int]:
+async def _db_country_counts(
+    *, dsn: str, since_epoch_s: float
+) -> dict[str | None, int]:
     import asyncpg
 
     conn = await asyncpg.connect(dsn)
@@ -83,7 +85,9 @@ async def _db_country_counts(*, dsn: str, since_epoch_s: float) -> dict[str | No
         await conn.close()
 
 
-async def run_scan(*, api_base: str, db_dsn: str, admin_token: str | None) -> ScanResult:
+async def run_scan(
+    *, api_base: str, db_dsn: str, admin_token: str | None
+) -> ScanResult:
     details: list[str] = []
 
     base = api_base.rstrip("/")
@@ -117,7 +121,9 @@ async def run_scan(*, api_base: str, db_dsn: str, admin_token: str | None) -> Sc
             r.raise_for_status()
             text = r.text or ""
             if "errandbridge_visits_total" not in text:
-                return ScanResult(False, details + ["metrics missing errandbridge_visits_total"])
+                return ScanResult(
+                    False, details + ["metrics missing errandbridge_visits_total"]
+                )
             details.append(f"metrics: {r.status_code}")
         except Exception as exc:
             return ScanResult(False, details + [f"metrics failed: {exc}"])
@@ -130,14 +136,19 @@ async def run_scan(*, api_base: str, db_dsn: str, admin_token: str | None) -> Sc
                 headers={"cloudfront-viewer-country": "NG"},
             )
             if res1.status_code != 202:
-                return ScanResult(False, details + [f"visit(geo header) status={res1.status_code}"])
+                return ScanResult(
+                    False, details + [f"visit(geo header) status={res1.status_code}"]
+                )
 
             res2 = await client.post(
                 visit_url,
                 json={"page": "/stack-scan", "source": "stack-scan", "country": "GB"},
             )
             if res2.status_code != 202:
-                return ScanResult(False, details + [f"visit(payload country) status={res2.status_code}"])
+                return ScanResult(
+                    False,
+                    details + [f"visit(payload country) status={res2.status_code}"],
+                )
 
             details.append("analytics: posted 2 visits")
         except Exception as exc:
@@ -173,7 +184,9 @@ async def run_scan(*, api_base: str, db_dsn: str, admin_token: str | None) -> Sc
                     r.raise_for_status()
                     overview = r.json()
                 except Exception as exc:
-                    return ScanResult(False, details + [f"admin overview failed: {exc}"])
+                    return ScanResult(
+                        False, details + [f"admin overview failed: {exc}"]
+                    )
 
             by_country = overview.get("visits_by_country") or []
             details.append(f"admin overview visits_by_country: {by_country}")
@@ -202,7 +215,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     result = asyncio.run(
-        run_scan(api_base=str(args.api_base), db_dsn=_normalize_db_dsn(str(args.db_dsn)), admin_token=args.admin_token)
+        run_scan(
+            api_base=str(args.api_base),
+            db_dsn=_normalize_db_dsn(str(args.db_dsn)),
+            admin_token=args.admin_token,
+        )
     )
 
     for line in result.details:

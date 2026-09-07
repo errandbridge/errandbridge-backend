@@ -51,11 +51,19 @@ async def test_tso_request_code_accepts_token_alias_and_sends_otp(monkeypatch):
         sent["user"] = user_obj
         sent["kwargs"] = kwargs
 
-    monkeypatch.setattr(routes_auth, "_get_user_from_login_link_token", fake_get_user_from_login_link_token)
+    monkeypatch.setattr(
+        routes_auth,
+        "_get_user_from_login_link_token",
+        fake_get_user_from_login_link_token,
+    )
     monkeypatch.setattr(routes_auth, "_send_otp_for_user", fake_send_otp_for_user)
-    monkeypatch.setattr(routes_auth, "_api_timestamp", lambda: "2026-07-20T19:42:59.464Z")
+    monkeypatch.setattr(
+        routes_auth, "_api_timestamp", lambda: "2026-07-20T19:42:59.464Z"
+    )
 
-    payload = routes_auth.LoginCodeRequest.model_validate({"token": "token-value-12345"})
+    payload = routes_auth.LoginCodeRequest.model_validate(
+        {"token": "token-value-12345"}
+    )
     response = await routes_auth.login_request_code(
         payload,
         request=DummyRequest("/tso/request-code"),
@@ -80,7 +88,7 @@ async def test_tso_verify_returns_time_limited_session_token(monkeypatch):
     user = DummyUser()
     db = FakeDB()
 
-    async def fake_get_user_from_login_link_token(db_obj, link_token):
+    async def fake_get_user_from_login_link_token(_db_obj, link_token):
         assert link_token == "token-value-12345"
         return user
 
@@ -96,17 +104,25 @@ async def test_tso_verify_returns_time_limited_session_token(monkeypatch):
         assert kwargs == {"user_id": 42}
         return "refresh-token-abc"
 
-    monkeypatch.setattr(routes_auth, "_get_user_from_login_link_token", fake_get_user_from_login_link_token)
+    monkeypatch.setattr(
+        routes_auth,
+        "_get_user_from_login_link_token",
+        fake_get_user_from_login_link_token,
+    )
     monkeypatch.setattr(routes_auth, "_check_otp", fake_check_otp)
     monkeypatch.setattr(routes_auth, "create_access_token", fake_create_access_token)
     monkeypatch.setattr(routes_auth, "create_refresh_token", fake_create_refresh_token)
     monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
-    monkeypatch.setattr(routes_auth, "_api_timestamp", lambda: "2026-07-20T19:41:41.640Z")
+    monkeypatch.setattr(
+        routes_auth, "_api_timestamp", lambda: "2026-07-20T19:41:41.640Z"
+    )
 
-    payload = routes_auth.LoginCodeVerifyRequest.model_validate({
-        "token": "token-value-12345",
-        "code": "483921",
-    })
+    payload = routes_auth.LoginCodeVerifyRequest.model_validate(
+        {
+            "token": "token-value-12345",
+            "code": "483921",
+        }
+    )
     response = await routes_auth.login_verify_code(
         payload,
         request=DummyRequest("/tso/verify"),
@@ -135,19 +151,25 @@ async def test_tso_verify_persists_invalid_code_attempt(monkeypatch):
     user = DummyUser()
     db = FakeDB()
 
-    async def fake_get_user_from_login_link_token(db_obj, link_token):
+    async def fake_get_user_from_login_link_token(_db_obj, link_token):
         return user
 
     def fake_check_otp(user_obj, code):
         raise HTTPException(status_code=400, detail="Invalid code")
 
-    monkeypatch.setattr(routes_auth, "_get_user_from_login_link_token", fake_get_user_from_login_link_token)
+    monkeypatch.setattr(
+        routes_auth,
+        "_get_user_from_login_link_token",
+        fake_get_user_from_login_link_token,
+    )
     monkeypatch.setattr(routes_auth, "_check_otp", fake_check_otp)
 
-    payload = routes_auth.LoginCodeVerifyRequest.model_validate({
-        "token": "token-value-12345",
-        "code": "000000",
-    })
+    payload = routes_auth.LoginCodeVerifyRequest.model_validate(
+        {
+            "token": "token-value-12345",
+            "code": "000000",
+        }
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         await routes_auth.login_verify_code(
@@ -168,9 +190,15 @@ async def test_tso_request_code_rejects_unverified_user(monkeypatch):
     async def fake_get_user_from_login_link_token(db, link_token):
         return user
 
-    monkeypatch.setattr(routes_auth, "_get_user_from_login_link_token", fake_get_user_from_login_link_token)
+    monkeypatch.setattr(
+        routes_auth,
+        "_get_user_from_login_link_token",
+        fake_get_user_from_login_link_token,
+    )
 
-    payload = routes_auth.LoginCodeRequest.model_validate({"token": "token-value-12345"})
+    payload = routes_auth.LoginCodeRequest.model_validate(
+        {"token": "token-value-12345"}
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         await routes_auth.login_request_code(

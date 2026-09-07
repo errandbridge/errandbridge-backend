@@ -9,7 +9,9 @@ class VoiceCallEvent(Base):
     __tablename__ = "voice_call_events"
 
     id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(Integer, ForeignKey("voice_call_sessions.id"), nullable=False, index=True)
+    session_id = Column(
+        Integer, ForeignKey("voice_call_sessions.id"), nullable=False, index=True
+    )
     event_type = Column(String, nullable=False)
     payload_json = Column(Text, nullable=False)
     previous_hash = Column(String, nullable=True)

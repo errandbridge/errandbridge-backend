@@ -46,7 +46,9 @@ class _FakeAdminMetricsDB:
         try:
             return self._scalar_values[self._scalar_calls - 1]
         except IndexError as exc:
-            raise AssertionError(f"Unexpected scalar() call #{self._scalar_calls}") from exc
+            raise AssertionError(
+                f"Unexpected scalar() call #{self._scalar_calls}"
+            ) from exc
 
     async def execute(self, query):
         self._execute_calls += 1
@@ -66,7 +68,9 @@ class _FakeAdminMetricsDB:
             query_str = str(query).lower()
             has_xx_param = any(str(v) == "XX" for v in params.values())
             has_not_equal = ("!=" in query_str) or ("<>" in query_str)
-            mentions_country_norm = "upper" in query_str and "trim" in query_str and "country" in query_str
+            mentions_country_norm = (
+                "upper" in query_str and "trim" in query_str and "country" in query_str
+            )
             excludes_xx = has_xx_param and has_not_equal and mentions_country_norm
 
             if excludes_xx:
@@ -77,9 +81,18 @@ class _FakeAdminMetricsDB:
 
         # Remaining execute calls return empty datasets for this unit test.
         if self._execute_calls == 6:
-            return _AllRowsResult([
-                ("/", "web", "US", None, None, datetime(2026, 7, 8, 12, 0, tzinfo=timezone.utc)),
-            ])
+            return _AllRowsResult(
+                [
+                    (
+                        "/",
+                        "web",
+                        "US",
+                        None,
+                        None,
+                        datetime(2026, 7, 8, 12, 0, tzinfo=timezone.utc),
+                    ),
+                ]
+            )
 
         if 2 <= self._execute_calls <= 8:
             return _AllRowsResult([])
@@ -88,7 +101,9 @@ class _FakeAdminMetricsDB:
 
 
 @pytest.mark.asyncio
-async def test_admin_metrics_overview_unknown_country_does_not_double_count_xx(monkeypatch):
+async def test_admin_metrics_overview_unknown_country_does_not_double_count_xx(
+    monkeypatch,
+):
     db = _FakeAdminMetricsDB()
 
     async def fake_require_admin(_db, _authorization):
@@ -128,9 +143,18 @@ class _FakeAdminMetricsCountryAliasDB(_FakeAdminMetricsDB):
         if self._execute_calls == 5:
             return _AllRowsResult([("NIGERIA", "Lagos", "Ikeja", 2)])
         if self._execute_calls == 6:
-            return _AllRowsResult([
-                ("/pricing", "web", "NIGERIA", "Lagos", "Ikeja", datetime(2026, 7, 8, 14, 30, tzinfo=timezone.utc)),
-            ])
+            return _AllRowsResult(
+                [
+                    (
+                        "/pricing",
+                        "web",
+                        "NIGERIA",
+                        "Lagos",
+                        "Ikeja",
+                        datetime(2026, 7, 8, 14, 30, tzinfo=timezone.utc),
+                    ),
+                ]
+            )
         if self._execute_calls in {7, 8}:
             return _AllRowsResult([])
         raise AssertionError(f"Unexpected execute() call #{self._execute_calls}")

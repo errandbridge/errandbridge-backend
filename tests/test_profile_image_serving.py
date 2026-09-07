@@ -28,7 +28,9 @@ def test_profile_image_public_route_serves_file():
         assert res.status_code == 200
         assert res.content.startswith(b"\x89PNG")
         # Content type is best-effort; allow either explicit image type or octet-stream.
-        assert res.headers.get("content-type", "").startswith(("image/", "application/octet-stream"))
+        assert res.headers.get("content-type", "").startswith(
+            ("image/", "application/octet-stream")
+        )
     finally:
         try:
             if path.exists():

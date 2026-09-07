@@ -41,7 +41,9 @@ def normalize_admin_dispatch_status(value: Optional[str]) -> str:
     return ADMIN_DISPATCH_ENABLED
 
 
-def _dispatch_block_reason(admin_dispatch_status: str, availability: str) -> Optional[str]:
+def _dispatch_block_reason(
+    admin_dispatch_status: str, availability: str
+) -> Optional[str]:
     if admin_dispatch_status == ADMIN_DISPATCH_PERMANENTLY_DISABLED:
         return "Your pilot account has been permanently blocked from dispatch."
     if admin_dispatch_status == ADMIN_DISPATCH_DISABLED:
@@ -52,7 +54,9 @@ def _dispatch_block_reason(admin_dispatch_status: str, availability: str) -> Opt
 
 
 def serialize_pilot_dispatch_state(user: Any) -> dict[str, Any]:
-    availability = normalize_pilot_availability(getattr(user, "pilot_availability", None))
+    availability = normalize_pilot_availability(
+        getattr(user, "pilot_availability", None)
+    )
     admin_dispatch_status = normalize_admin_dispatch_status(
         getattr(user, "admin_dispatch_status", None),
     )
@@ -103,5 +107,7 @@ def set_admin_dispatch_status(
 def ensure_pilot_can_accept_jobs(user: Any) -> dict[str, Any]:
     state = serialize_pilot_dispatch_state(user)
     if not state["can_accept_jobs"]:
-        raise PermissionError(state["dispatch_block_reason"] or "Pilot cannot accept jobs right now.")
+        raise PermissionError(
+            state["dispatch_block_reason"] or "Pilot cannot accept jobs right now."
+        )
     return state

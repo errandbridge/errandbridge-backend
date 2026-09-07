@@ -48,7 +48,9 @@ class FakeDB:
 
 @pytest.mark.asyncio
 async def test_accept_job_allows_open_pool_pending_errand(monkeypatch):
-    pilot = SimpleNamespace(id=77, email="pilot@example.com", city="Lagos", state_province="Lagos")
+    pilot = SimpleNamespace(
+        id=77, email="pilot@example.com", city="Lagos", state_province="Lagos"
+    )
     customer = SimpleNamespace(first_name="Ada", last_name="Client")
     errand = SimpleNamespace(
         id=55,
@@ -74,7 +76,9 @@ async def test_accept_job_allows_open_pool_pending_errand(monkeypatch):
         return None
 
     monkeypatch.setattr(pilot_delivery, "_get_current_user", fake_current_user)
-    monkeypatch.setattr(pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None)
+    monkeypatch.setattr(
+        pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None
+    )
     monkeypatch.setattr(pilot_delivery, "notify_customer_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_admin_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_pilot_status", fake_notify)
@@ -99,7 +103,9 @@ async def test_accept_job_allows_open_pool_pending_errand(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_accept_job_rejects_open_pool_errand_outside_service_area(monkeypatch):
-    pilot = SimpleNamespace(id=77, email="pilot@example.com", city="Lagos", state_province="Lagos")
+    pilot = SimpleNamespace(
+        id=77, email="pilot@example.com", city="Lagos", state_province="Lagos"
+    )
     customer = SimpleNamespace(first_name="Ada", last_name="Client")
     errand = SimpleNamespace(
         id=56,
@@ -125,7 +131,9 @@ async def test_accept_job_rejects_open_pool_errand_outside_service_area(monkeypa
         return None
 
     monkeypatch.setattr(pilot_delivery, "_get_current_user", fake_current_user)
-    monkeypatch.setattr(pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None)
+    monkeypatch.setattr(
+        pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None
+    )
     monkeypatch.setattr(pilot_delivery, "notify_customer_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_admin_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_pilot_status", fake_notify)
@@ -143,7 +151,9 @@ async def test_accept_job_rejects_open_pool_errand_outside_service_area(monkeypa
 
 @pytest.mark.asyncio
 async def test_accept_job_rejects_open_pool_errand_outside_5_mile_radius(monkeypatch):
-    pilot = SimpleNamespace(id=77, email="pilot@example.com", city="Lagos", state_province="Lagos")
+    pilot = SimpleNamespace(
+        id=77, email="pilot@example.com", city="Lagos", state_province="Lagos"
+    )
     customer = SimpleNamespace(first_name="Ada", last_name="Client")
     errand = SimpleNamespace(
         id=57,
@@ -169,7 +179,9 @@ async def test_accept_job_rejects_open_pool_errand_outside_5_mile_radius(monkeyp
         return None
 
     monkeypatch.setattr(pilot_delivery, "_get_current_user", fake_current_user)
-    monkeypatch.setattr(pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None)
+    monkeypatch.setattr(
+        pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None
+    )
     monkeypatch.setattr(pilot_delivery, "notify_customer_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_admin_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_pilot_status", fake_notify)
@@ -187,7 +199,13 @@ async def test_accept_job_rejects_open_pool_errand_outside_5_mile_radius(monkeyp
 
 @pytest.mark.asyncio
 async def test_accept_job_rejects_bike_support_for_pilot_without_bike(monkeypatch):
-    pilot = SimpleNamespace(id=77, email="pilot@example.com", city="Lagos", state_province="Lagos", vehicle_type="car")
+    pilot = SimpleNamespace(
+        id=77,
+        email="pilot@example.com",
+        city="Lagos",
+        state_province="Lagos",
+        vehicle_type="car",
+    )
     customer = SimpleNamespace(first_name="Ada", last_name="Client")
     errand = SimpleNamespace(
         id=57,
@@ -214,7 +232,9 @@ async def test_accept_job_rejects_bike_support_for_pilot_without_bike(monkeypatc
         return None
 
     monkeypatch.setattr(pilot_delivery, "_get_current_user", fake_current_user)
-    monkeypatch.setattr(pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None)
+    monkeypatch.setattr(
+        pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None
+    )
     monkeypatch.setattr(pilot_delivery, "notify_customer_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_admin_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_pilot_status", fake_notify)
@@ -232,7 +252,13 @@ async def test_accept_job_rejects_bike_support_for_pilot_without_bike(monkeypatc
 
 @pytest.mark.asyncio
 async def test_accept_job_rejects_car_support_for_pilot_without_car(monkeypatch):
-    pilot = SimpleNamespace(id=77, email="pilot@example.com", city="Lagos", state_province="Lagos", vehicle_type="bike")
+    pilot = SimpleNamespace(
+        id=77,
+        email="pilot@example.com",
+        city="Lagos",
+        state_province="Lagos",
+        vehicle_type="bike",
+    )
     customer = SimpleNamespace(first_name="Ada", last_name="Client")
     errand = SimpleNamespace(
         id=58,
@@ -259,7 +285,9 @@ async def test_accept_job_rejects_car_support_for_pilot_without_car(monkeypatch)
         return None
 
     monkeypatch.setattr(pilot_delivery, "_get_current_user", fake_current_user)
-    monkeypatch.setattr(pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None)
+    monkeypatch.setattr(
+        pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None
+    )
     monkeypatch.setattr(pilot_delivery, "notify_customer_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_admin_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_pilot_status", fake_notify)
@@ -276,8 +304,16 @@ async def test_accept_job_rejects_car_support_for_pilot_without_car(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_accept_job_requires_cross_city_enabled_pilot_for_long_distance(monkeypatch):
-    pilot = SimpleNamespace(id=77, email="pilot@example.com", city="Lagos", state_province="Lagos", vehicle_type="car")
+async def test_accept_job_requires_cross_city_enabled_pilot_for_long_distance(
+    monkeypatch,
+):
+    pilot = SimpleNamespace(
+        id=77,
+        email="pilot@example.com",
+        city="Lagos",
+        state_province="Lagos",
+        vehicle_type="car",
+    )
     customer = SimpleNamespace(first_name="Ada", last_name="Client")
     errand = SimpleNamespace(
         id=59,
@@ -304,7 +340,9 @@ async def test_accept_job_requires_cross_city_enabled_pilot_for_long_distance(mo
         return None
 
     monkeypatch.setattr(pilot_delivery, "_get_current_user", fake_current_user)
-    monkeypatch.setattr(pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None)
+    monkeypatch.setattr(
+        pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None
+    )
     monkeypatch.setattr(pilot_delivery, "notify_customer_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_admin_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_pilot_status", fake_notify)
@@ -322,7 +360,9 @@ async def test_accept_job_requires_cross_city_enabled_pilot_for_long_distance(mo
 
 @pytest.mark.asyncio
 async def test_accept_job_uses_configured_open_pool_radius(monkeypatch):
-    pilot = SimpleNamespace(id=77, email="pilot@example.com", city="Lagos", state_province="Lagos")
+    pilot = SimpleNamespace(
+        id=77, email="pilot@example.com", city="Lagos", state_province="Lagos"
+    )
     customer = SimpleNamespace(first_name="Ada", last_name="Client")
     errand = SimpleNamespace(
         id=58,
@@ -354,8 +394,12 @@ async def test_accept_job_uses_configured_open_pool_radius(monkeypatch):
         return None
 
     monkeypatch.setattr(pilot_delivery, "_get_current_user", fake_current_user)
-    monkeypatch.setattr(pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None)
-    monkeypatch.setattr(pilot_delivery, "get_pilot_dispatch_policy_state", fake_policy_state)
+    monkeypatch.setattr(
+        pilot_delivery, "ensure_pilot_can_accept_jobs", lambda _pilot: None
+    )
+    monkeypatch.setattr(
+        pilot_delivery, "get_pilot_dispatch_policy_state", fake_policy_state
+    )
     monkeypatch.setattr(pilot_delivery, "notify_customer_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_admin_status", fake_notify)
     monkeypatch.setattr(pilot_delivery, "notify_pilot_status", fake_notify)

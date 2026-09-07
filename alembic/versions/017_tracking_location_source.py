@@ -8,7 +8,6 @@ Create Date: 2026-07-02
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "017_tracking_location_source"
 down_revision = "016_service_setup_errands"
 branch_labels = None
@@ -25,7 +24,9 @@ def upgrade() -> None:
         sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.execute("UPDATE pilot_locations SET source = 'mobile_app' WHERE source IS NULL")
-    op.execute("UPDATE pilot_locations SET recorded_at = created_at WHERE recorded_at IS NULL")
+    op.execute(
+        "UPDATE pilot_locations SET recorded_at = created_at WHERE recorded_at IS NULL"
+    )
 
 
 def downgrade() -> None:

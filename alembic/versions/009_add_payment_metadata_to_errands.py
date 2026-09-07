@@ -9,7 +9,6 @@ Create Date: 2026-03-27
 from alembic import op
 import sqlalchemy as sa
 
-
 # revision identifiers, used by Alembic.
 revision = "009_add_payment_metadata"
 down_revision = "008_pilot_employment_tables"

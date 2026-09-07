@@ -7,13 +7,21 @@ import schema as schema_module
 
 @pytest.mark.parametrize(
     "input_schedule, expected_date",
-    [(
-        {"type": "now"},
-        None,
-    ), (
-        {"type": "one_time", "date": "2026-03-31", "startTime": "16:00", "endTime": "21:45"},
-        "2026-03-31",
-    )],
+    [
+        (
+            {"type": "now"},
+            None,
+        ),
+        (
+            {
+                "type": "one_time",
+                "date": "2026-03-31",
+                "startTime": "16:00",
+                "endTime": "21:45",
+            },
+            "2026-03-31",
+        ),
+    ],
 )
 def test_create_errand_accepts_schedule_input(input_schedule, expected_date):
     # Unit-test the schedule mapping logic without requiring a running Postgres.

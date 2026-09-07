@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.sql import func
 from database import Base
 
+
 class ErrandAttachment(Base):
     __tablename__ = "errand_attachments"
     id = Column(Integer, primary_key=True, index=True)

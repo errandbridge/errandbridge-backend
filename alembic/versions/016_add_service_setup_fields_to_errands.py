@@ -8,7 +8,6 @@ Create Date: 2026-04-25
 from alembic import op
 import sqlalchemy as sa
 
-
 revision = "016_service_setup_errands"
 down_revision = "015_add_subscriptions_checkout"
 branch_labels = None
@@ -21,8 +20,12 @@ def upgrade() -> None:
     op.add_column("errands", sa.Column("preferred_time", sa.String(), nullable=True))
     op.add_column("errands", sa.Column("priority_level", sa.String(), nullable=True))
     op.add_column("errands", sa.Column("distance_km", sa.Float(), nullable=True))
-    op.add_column("errands", sa.Column("final_price_minor", sa.Integer(), nullable=True))
-    op.add_column("errands", sa.Column("final_price_currency", sa.String(), nullable=True))
+    op.add_column(
+        "errands", sa.Column("final_price_minor", sa.Integer(), nullable=True)
+    )
+    op.add_column(
+        "errands", sa.Column("final_price_currency", sa.String(), nullable=True)
+    )
 
 
 def downgrade() -> None:

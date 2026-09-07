@@ -22,7 +22,6 @@ import psycopg2
 import requests
 from dotenv import load_dotenv
 
-
 DEFAULT_BASE_URL = "http://localhost:8001"
 
 
@@ -157,7 +156,9 @@ def main() -> int:
         timeout=15,
     )
     if confirm_res.status_code != 200:
-        raise RuntimeError(f"Confirm failed: {confirm_res.status_code} {confirm_res.text}")
+        raise RuntimeError(
+            f"Confirm failed: {confirm_res.status_code} {confirm_res.text}"
+        )
 
     print("[otp-smoke] OK")
     return 0

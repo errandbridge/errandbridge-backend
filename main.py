@@ -49,8 +49,14 @@ from auth_user_query import AUTH_SAFE_USER_LOAD_OPTIONS, auth_safe_user_by_email
 from datetime import datetime, timedelta, timezone
 import time
 from contextlib import asynccontextmanager
-from admin_utils import admin_emails
-from storage import build_stored_filename, get_storage_config, presign_or_stream_key, put_bytes, s3_key
+from app.utils.admin_utils import admin_emails
+from app.services.storage import (
+    build_stored_filename,
+    get_storage_config,
+    presign_or_stream_key,
+    put_bytes,
+    s3_key,
+)
 
 # Optional OpenAI import (only used if API key is configured)
 try:
@@ -63,6 +69,7 @@ from dotenv import load_dotenv
 # ===== IDEMPOTENCY LOCK FOR STARTUP =====
 _db_init_lock = asyncio.Lock()
 _db_init_done = False
+
 
 # Load environment variables from .env file (local/dev only)
 def _running_in_aws_container() -> bool:
@@ -102,6 +109,7 @@ async def lifespan(app: FastAPI):
         print(f"[STARTUP] Startup initialization failed: {str(e)}", flush=True)
 
     yield
+
 
 print("[STARTUP] FastAPI app created successfully", flush=True)
 
@@ -213,7 +221,11 @@ def _openapi_tag_for_path(path: str, existing_tags: list[str]) -> str:
 
     if path in {"/", "/version", "/health", "/health/", "/ready", "/ready/"}:
         return "00 System & Health"
-    if path.startswith("/dev/") or path.startswith("/test-") or path.startswith("/anomaly-"):
+    if (
+        path.startswith("/dev/")
+        or path.startswith("/test-")
+        or path.startswith("/anomaly-")
+    ):
         return "00 System & Health"
     if path.startswith("/auth/") or path.startswith("/api/auth/"):
         return "01 Auth & Account"
@@ -228,19 +240,48 @@ def _openapi_tag_for_path(path: str, existing_tags: list[str]) -> str:
         or path.startswith("/v1/errands/")
     ):
         return "03 Errands & Attachments"
-    if path.startswith("/pilots/") or path.startswith("/v1/pilots/") or path.startswith("/api/v1/pilots/") or path.startswith("/pilot-employment/"):
+    if (
+        path.startswith("/pilots/")
+        or path.startswith("/v1/pilots/")
+        or path.startswith("/api/v1/pilots/")
+        or path.startswith("/pilot-employment/")
+    ):
         return "04 Pilots & Delivery"
-    if path.startswith("/tracking/") or path.startswith("/v1/tracking/") or path.startswith("/api/v1/tracking/"):
+    if (
+        path.startswith("/tracking/")
+        or path.startswith("/v1/tracking/")
+        or path.startswith("/api/v1/tracking/")
+    ):
         return "05 Tracking & Live Location"
     if path.startswith("/payments/") or path.startswith("/webhooks/stripe"):
         return "06 Payments & Subscriptions"
     if path.startswith("/promo-codes/"):
         return "07 Promo Codes"
-    if path.startswith("/support/") or path.startswith("/incidents/") or path.startswith("/v1/support/") or path.startswith("/v1/incidents/") or path.startswith("/api/v1/support/") or path.startswith("/api/v1/incidents/"):
+    if (
+        path.startswith("/support/")
+        or path.startswith("/incidents/")
+        or path.startswith("/v1/support/")
+        or path.startswith("/v1/incidents/")
+        or path.startswith("/api/v1/support/")
+        or path.startswith("/api/v1/incidents/")
+    ):
         return "08 Support & Incidents"
-    if path.startswith("/public/") or path.startswith("/v1/public/") or path.startswith("/api/v1/public/") or path.startswith("/uploads/profiles/"):
+    if (
+        path.startswith("/public/")
+        or path.startswith("/v1/public/")
+        or path.startswith("/api/v1/public/")
+        or path.startswith("/uploads/profiles/")
+    ):
         return "09 Public & Reviews"
-    if path.startswith("/assistant/") or path.startswith("/toxi/") or path.startswith("/v1/assistant/") or path.startswith("/v1/toxi/") or path.startswith("/api/v1/assistant/") or path.startswith("/api/v1/toxi/") or path.startswith("/prompt/"):
+    if (
+        path.startswith("/assistant/")
+        or path.startswith("/toxi/")
+        or path.startswith("/v1/assistant/")
+        or path.startswith("/v1/toxi/")
+        or path.startswith("/api/v1/assistant/")
+        or path.startswith("/api/v1/toxi/")
+        or path.startswith("/prompt/")
+    ):
         return "10 Assistant & AI"
     if path.startswith("/analytics/") or path.startswith("/voice/"):
         return "11 Analytics & Voice"
@@ -259,7 +300,9 @@ def _organize_openapi_tags(openapi_schema: dict) -> None:
         for operation in path_item.values():
             if not isinstance(operation, dict):
                 continue
-            operation["tags"] = [_openapi_tag_for_path(path, operation.get("tags") or [])]
+            operation["tags"] = [
+                _openapi_tag_for_path(path, operation.get("tags") or [])
+            ]
 
 
 def _hide_legacy_api_paths(openapi_schema: dict) -> None:
@@ -337,12 +380,7 @@ def custom_openapi():
     security_schemes = components.setdefault("securitySchemes", {})
     security_schemes["BearerAuth"] = {
         "type": "oauth2",
-        "flows": {
-            "password": {
-                "tokenUrl": "/auth/swagger-login",
-                "scopes": {}
-            }
-        },
+        "flows": {"password": {"tokenUrl": "/auth/swagger-login", "scopes": {}}},
         "description": (
             "Authenticate with your email (as username) and password. "
             "Auth responses also include user_uuid/userUuid as a stable public user identifier for data mapping; "
@@ -365,10 +403,15 @@ app.openapi = custom_openapi
 async def _ensure_admin_accounts() -> None:
     admin_password = (os.getenv("ADMIN_BOOTSTRAP_PASSWORD") or "").strip()
     if not admin_password:
-        print("[BOOTSTRAP] ADMIN_BOOTSTRAP_PASSWORD not set; skipping admin bootstrap", flush=True)
+        print(
+            "[BOOTSTRAP] ADMIN_BOOTSTRAP_PASSWORD not set; skipping admin bootstrap",
+            flush=True,
+        )
         return
 
-    reset_password = (os.getenv("ADMIN_BOOTSTRAP_RESET_PASSWORD") or "").strip().lower() in {
+    reset_password = (
+        os.getenv("ADMIN_BOOTSTRAP_RESET_PASSWORD") or ""
+    ).strip().lower() in {
         "1",
         "true",
         "yes",
@@ -390,7 +433,10 @@ async def _ensure_admin_accounts() -> None:
                 if reset_password:
                     existing.password_hash = hash_password(admin_password)
                     changed = True
-                    print(f"[BOOTSTRAP] Reset password for admin account {email}", flush=True)
+                    print(
+                        f"[BOOTSTRAP] Reset password for admin account {email}",
+                        flush=True,
+                    )
 
                 if not existing.is_email_verified:
                     existing.is_email_verified = True
@@ -430,6 +476,7 @@ def get_anomaly_alerts(limit: int = 20):
                     continue
     return JSONResponse(content={"alerts": alerts})
 
+
 def _effective_env_name() -> str:
     """Resolve the current environment name.
 
@@ -439,7 +486,9 @@ def _effective_env_name() -> str:
 
     If we detect we're running in AWS and no explicit env is set, default to "prod".
     """
-    explicit = (os.getenv("ENV") or os.getenv("BACKEND_ENVIRONMENT") or "").strip().lower()
+    explicit = (
+        (os.getenv("ENV") or os.getenv("BACKEND_ENVIRONMENT") or "").strip().lower()
+    )
     if explicit:
         return explicit
     if _running_in_aws_container():
@@ -452,7 +501,13 @@ def _is_production_like() -> bool:
 
 
 def _dev_routes_enabled() -> bool:
-    if str(os.getenv("ENABLE_DEV_ROUTES") or "").strip().lower() in {"1", "true", "yes", "y", "on"}:
+    if str(os.getenv("ENABLE_DEV_ROUTES") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    }:
         return True
     return not _is_production_like()
 
@@ -471,19 +526,26 @@ else:
         flush=True,
     )
 
+
 def _parse_cors_origins() -> list[str]:
     raw = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
-    env_origins = [origin.strip() for origin in raw.split(",") if origin.strip()] if raw else []
+    env_origins = (
+        [origin.strip() for origin in raw.split(",") if origin.strip()] if raw else []
+    )
 
     env_name = _effective_env_name()
 
     # In local dev, keep CORS strictly localhost-only to avoid mixing environments.
-    default_origins = [] if env_name == "local" else [
-        "https://www.errandbridge.com",
-        "https://errandbridge.com",
-        "https://pilot.errandbridge.com",
-        "https://api.errandbridge.com",
-    ]
+    default_origins = (
+        []
+        if env_name == "local"
+        else [
+            "https://www.errandbridge.com",
+            "https://errandbridge.com",
+            "https://pilot.errandbridge.com",
+            "https://api.errandbridge.com",
+        ]
+    )
 
     local_origins = [
         "http://localhost",
@@ -571,8 +633,11 @@ async def add_security_headers(request: Request, call_next):
         "camera=(), microphone=(), geolocation=(self), payment=(self)",
     )
     if _is_production_like():
-        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload"
+        )
     return response
+
 
 # CORS setup
 _DEFAULT_UPLOAD_DIR = pathlib.Path(__file__).resolve().parent / "uploads"
@@ -644,15 +709,17 @@ async def get_public_profile_image(filename: str, request: Request):
     response.headers.setdefault("Cache-Control", "public, max-age=300")
     return response
 
+
 # Explicit OPTIONS handler for CORS preflight on file upload
 @app.options("/errands/{errand_id}/attachments")
 async def options_upload_errand_attachment(errand_id: int):
     return Response(status_code=200)
 
 
-
 class SuggestRequest(BaseModel):
-    template_id: Optional[Literal["diaspora_pickup", "market_run", "driver_dispatch"]] = Field(
+    template_id: Optional[
+        Literal["diaspora_pickup", "market_run", "driver_dispatch"]
+    ] = Field(
         default=None, description="Optional template identifier to guide suggestions"
     )
     prompt: str = Field(..., min_length=1, description="Free-form user prompt")
@@ -665,7 +732,9 @@ class SuggestResponse(BaseModel):
 
 class AISuggestRequest(BaseModel):
     description: str = Field(..., min_length=1, description="Your errand description")
-    template_id: Optional[str] = Field(default=None, description="Optional template preference")
+    template_id: Optional[str] = Field(
+        default=None, description="Optional template preference"
+    )
 
 
 class AISuggestResponse(BaseModel):
@@ -682,9 +751,15 @@ class ErrandCreateRequest(BaseModel):
     pickup_location: Optional[str] = Field(default=None, alias="pickupLocation")
     dropoff_location: Optional[str] = Field(default=None, alias="dropoffLocation")
     pickup_contact_name: Optional[str] = Field(default=None, alias="pickupContactName")
-    pickup_contact_phone: Optional[str] = Field(default=None, alias="pickupContactPhone")
-    dropoff_contact_name: Optional[str] = Field(default=None, alias="dropoffContactName")
-    dropoff_contact_phone: Optional[str] = Field(default=None, alias="dropoffContactPhone")
+    pickup_contact_phone: Optional[str] = Field(
+        default=None, alias="pickupContactPhone"
+    )
+    dropoff_contact_name: Optional[str] = Field(
+        default=None, alias="dropoffContactName"
+    )
+    dropoff_contact_phone: Optional[str] = Field(
+        default=None, alias="dropoffContactPhone"
+    )
     distance_km: Optional[float] = Field(default=None, alias="distanceKm")
     note: Optional[str] = None
     category: Optional[str] = None
@@ -704,10 +779,18 @@ class ErrandResponse(BaseModel):
     pickup_location: Optional[str] = Field(default=None, alias="pickupLocation")
     dropoff_location: Optional[str] = Field(default=None, alias="dropoffLocation")
     pickup_contact_name: Optional[str] = Field(default=None, alias="pickupContactName")
-    pickup_contact_phone: Optional[str] = Field(default=None, alias="pickupContactPhone")
-    dropoff_contact_name: Optional[str] = Field(default=None, alias="dropoffContactName")
-    dropoff_contact_phone: Optional[str] = Field(default=None, alias="dropoffContactPhone")
-    assigned_runner_name: Optional[str] = Field(default=None, alias="assignedRunnerName")
+    pickup_contact_phone: Optional[str] = Field(
+        default=None, alias="pickupContactPhone"
+    )
+    dropoff_contact_name: Optional[str] = Field(
+        default=None, alias="dropoffContactName"
+    )
+    dropoff_contact_phone: Optional[str] = Field(
+        default=None, alias="dropoffContactPhone"
+    )
+    assigned_runner_name: Optional[str] = Field(
+        default=None, alias="assignedRunnerName"
+    )
     note: Optional[str] = None
     status: str
     user_id: int = Field(..., alias="userId")
@@ -716,7 +799,9 @@ class ErrandResponse(BaseModel):
     updated_at: Optional[datetime] = Field(default=None, alias="updatedAt")
     started_at: Optional[datetime] = Field(default=None, alias="startedAt")
     completed_at: Optional[datetime] = Field(default=None, alias="completedAt")
-    pickup_time_slot_date: Optional[str] = Field(default=None, alias="pickupTimeSlotDate")
+    pickup_time_slot_date: Optional[str] = Field(
+        default=None, alias="pickupTimeSlotDate"
+    )
 
     class Config:
         allow_population_by_field_name = True
@@ -758,15 +843,14 @@ def _derive_draft(prompt: str, template_id: Optional[str]) -> SuggestResponse:
     return SuggestResponse(title=title_raw, description=description)
 
 
-
 async def _startup_event() -> None:
     """Startup event handler with idempotent database initialization."""
     global _db_init_done
     env_name = (os.getenv("ENV") or "local").lower()
     running_in_aws = bool(os.getenv("AWS_EXECUTION_ENV"))
-    
+
     print("[STARTUP] ✨ Startup event handler called!", flush=True)
-    
+
     # Never use create_all in AWS/non-local environments.
     # create_all does not apply schema migrations (it won't add columns like tip_amount_total_minor).
     # In deployments we rely on Alembic (run in /app/prestart.sh).
@@ -783,7 +867,7 @@ async def _startup_event() -> None:
         if _db_init_done:
             print("[STARTUP] ℹ️  Database already initialized, skipping...", flush=True)
             return
-        
+
         try:
             print("[STARTUP] 🔄 Initializing database tables...", flush=True)
 
@@ -813,6 +897,7 @@ async def _startup_event() -> None:
                     SupportConversation,
                     SupportMessage,
                 )
+
                 _ = (
                     User,
                     Errand,
@@ -829,6 +914,7 @@ async def _startup_event() -> None:
                 print("[STARTUP] 📦 Models imported successfully", flush=True)
 
                 from database import engine, Base
+
                 print("[STARTUP] 🔌 Database engine loaded", flush=True)
 
                 # Create schema and tables with proper permissions
@@ -844,7 +930,10 @@ async def _startup_event() -> None:
                     # Local/dev resilience: create_all does not backfill newly-added columns
                     # on existing tables, so a developer DB that missed an Alembic revision can
                     # otherwise crash errand submission with UndefinedColumnError.
-                    print("[STARTUP] 🩹 Ensuring errand service-setup columns exist...", flush=True)
+                    print(
+                        "[STARTUP] 🩹 Ensuring errand service-setup columns exist...",
+                        flush=True,
+                    )
                     for column_name, column_type in service_setup_columns:
                         await conn.execute(
                             text(
@@ -859,24 +948,30 @@ async def _startup_event() -> None:
             _db_init_done = True
 
         except asyncio.TimeoutError:
-            print("[STARTUP] ⚠️ Database initialization timed out; continuing startup.", flush=True)
+            print(
+                "[STARTUP] ⚠️ Database initialization timed out; continuing startup.",
+                flush=True,
+            )
         except Exception as e:
             import traceback
+
             print(f"[STARTUP] ❌ Database initialization error: {str(e)}", flush=True)
             print(f"[STARTUP] ❌ Traceback: {traceback.format_exc()}", flush=True)
             # Don't set _db_init_done = True so it retries on next startup
-    
+
     cfg = get_storage_config()
     if cfg.driver == "s3":
         print(
             f"[storage] driver=s3 bucket={cfg.s3_bucket} region={cfg.s3_region} prefix={cfg.s3_prefix}",
-            flush=True
-    )
+            flush=True,
+        )
     else:
         print(f"[storage] driver=local upload_dir={str(UPLOAD_DIR)}", flush=True)
 
+
 # Prometheus metrics
 Instrumentator().instrument(app).expose(app, include_in_schema=False, should_gzip=True)
+
 
 # Health check endpoint - liveness (should not depend on external services)
 @app.head("/health")
@@ -909,6 +1004,7 @@ async def readiness_check():
     timestamp = datetime.utcnow().isoformat()
     env_name = _effective_env_name()
     try:
+
         async def _db_probe():
             async with AsyncSessionLocal() as session:
                 result = await session.execute(select(1))
@@ -963,35 +1059,44 @@ async def readiness_check():
             content=content,
         )
 
+
 # Development-only: Verify admin email (temporary for onboarding)
 @app.post("/dev/verify-admin/{email}")
 async def dev_verify_admin(email: str):
     """Temporary endpoint to verify admin email for development/onboarding."""
     _assert_dev_route_enabled()
     # Only works if admin emails are configured
-    admin_emails = os.getenv('ADMIN_EMAILS', '').split(',')
+    admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
     admin_emails_list = [e.strip().lower() for e in admin_emails if e.strip()]
-    
+
     if email.lower() not in admin_emails_list:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email is not configured as admin")
-    
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email is not configured as admin",
+        )
+
     try:
         async with AsyncSessionLocal() as session:
             result = await session.execute(auth_safe_user_by_email_query(email))
             user = result.scalar_one_or_none()
-            
+
             if not user:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-            
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+                )
+
             user.is_email_verified = True
             await session.commit()
-            
+
             return {"ok": True, "message": f"Email verified for {email}"}
     except HTTPException:
         raise
     except Exception as e:
         print(f"[DEV_VERIFY] Error: {str(e)}", flush=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+
 
 # GraphQL endpoint
 def _extract_bearer(authorization: str | None) -> str | None:
@@ -1164,12 +1269,18 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
                 if (
                     not payment_session_row
                     or not bool(getattr(payment_session_row, "paid", False))
-                    or getattr(payment_session_row, "used_for_errand_id", None) is not None
+                    or getattr(payment_session_row, "used_for_errand_id", None)
+                    is not None
                 ):
                     raise HTTPException(status_code=400, detail="Payment not verified")
 
         clean_title = (payload.title or "").strip()
-        if not clean_title or len(clean_title) > 45 or clean_title.lower().startswith("i'm happy to help") or clean_title.lower().startswith("create an errand"):
+        if (
+            not clean_title
+            or len(clean_title) > 45
+            or clean_title.lower().startswith("i'm happy to help")
+            or clean_title.lower().startswith("create an errand")
+        ):
             clean_title = {
                 "diaspora_pickup": "Personal Errand",
                 "doc_v2": "Document & Office",
@@ -1178,7 +1289,7 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
                 "property_v2": "Property Inspection",
                 "health_v2": "Prescription & Health",
                 "shopping_v2": "Shopping Errand",
-                "custom_v2": "Custom Errand"
+                "custom_v2": "Custom Errand",
             }.get(payload.category or "", "General Errand")
 
         model = Errand(
@@ -1219,7 +1330,9 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
         await session.commit()
         await session.refresh(model)
 
-    created_iso = model.created_at.isoformat() if getattr(model, "created_at", None) else None
+    created_iso = (
+        model.created_at.isoformat() if getattr(model, "created_at", None) else None
+    )
     return {
         "id": model.id,
         "reference_number": model.reference_number,
@@ -1238,8 +1351,8 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
         "dropoffContactName": getattr(model, "dropoff_contact_name", None),
         "dropoff_contact_phone": getattr(model, "dropoff_contact_phone", None),
         "dropoffContactPhone": getattr(model, "dropoff_contact_phone", None),
-        "assigned_runner_name": pilot_name,
-        "assignedRunnerName": pilot_name,
+        "assigned_runner_name": None,
+        "assignedRunnerName": None,
         "status": model.status,
         "user_id": model.user_id,
         "userId": model.user_id,
@@ -1256,7 +1369,9 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
 @app.get("/errands", response_model=list[ErrandResponse])
 async def list_errands(
     request: Request,
-    status_filter: Optional[str] = Query(default=None, alias="status", description="Optional errand status filter"),
+    status_filter: Optional[str] = Query(
+        default=None, alias="status", description="Optional errand status filter"
+    ),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):
@@ -1267,6 +1382,7 @@ async def list_errands(
     user_id = _current_user_id_from_request(request)
 
     from sqlalchemy.orm import aliased
+
     pilot_alias = aliased(User)
     stmt = (
         select(Errand, pilot_alias)
@@ -1287,7 +1403,9 @@ async def list_errands(
         if pilot_user:
             fn = (pilot_user.first_name or "").strip()
             ln = (pilot_user.last_name or "").strip()
-            pilot_name = f"{fn} {ln}".strip() or pilot_user.email or f"Pilot #{pilot_user.id}"
+            pilot_name = (
+                f"{fn} {ln}".strip() or pilot_user.email or f"Pilot #{pilot_user.id}"
+            )
         out.append(_errand_response(errand_row, pilot_name=pilot_name))
 
     return out
@@ -1299,27 +1417,29 @@ class ErrandStatusUpdateIn(BaseModel):
 
 
 @app.put("/errands/{errand_id}/status", response_model=ErrandResponse)
-async def update_errand_status(errand_id: int, payload: ErrandStatusUpdateIn, request: Request):
+async def update_errand_status(
+    errand_id: int, payload: ErrandStatusUpdateIn, request: Request
+):
     user_id = _current_user_id_from_request(request)
-    
+
     async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(Errand).where(Errand.id == errand_id)
-        )
+        result = await session.execute(select(Errand).where(Errand.id == errand_id))
         model = result.scalar_one_or_none()
-        
+
         if not model:
             raise HTTPException(status_code=404, detail="Errand not found")
-            
-        if int(model.user_id) != int(user_id) and (model.pilot_id is None or int(model.pilot_id) != int(user_id)):
+
+        if int(model.user_id) != int(user_id) and (
+            model.pilot_id is None or int(model.pilot_id) != int(user_id)
+        ):
             raise HTTPException(status_code=403, detail="Not allowed to update status")
-            
+
         model.status = payload.status
-        
+
         session.add(model)
         await session.commit()
         await session.refresh(model)
-        
+
     return _errand_response(model)
 
 
@@ -1341,7 +1461,9 @@ async def get_errand(errand_id: int, request: Request):
 
 
 @app.post("/errands/{errand_id}/attachments")
-async def upload_errand_attachment(errand_id: int, request: Request, file: UploadFile = File(...)):
+async def upload_errand_attachment(
+    errand_id: int, request: Request, file: UploadFile = File(...)
+):
     print("[DEBUG] Incoming headers:", dict(request.headers))
     """Upload an image/document attachment for an errand.
 
@@ -1384,7 +1506,9 @@ async def upload_errand_attachment(errand_id: int, request: Request, file: Uploa
         model = await session.get(Errand, errand_id)
         if not model:
             raise HTTPException(status_code=404, detail="Errand not found")
-        if int(model.user_id) != int(user_id) and (model.pilot_id is None or int(model.pilot_id) != int(user_id)):
+        if int(model.user_id) != int(user_id) and (
+            model.pilot_id is None or int(model.pilot_id) != int(user_id)
+        ):
             raise HTTPException(status_code=403, detail="Not allowed")
 
         attachment = ErrandAttachment(
@@ -1449,7 +1573,9 @@ async def list_errand_attachments(errand_id: int, request: Request):
             "label": getattr(a, "label", None),
             "reviewStatus": str(getattr(a, "review_status", "pending") or "pending"),
             "reviewNote": getattr(a, "review_note", None),
-            "reviewedAt": a.reviewed_at.isoformat() if getattr(a, "reviewed_at", None) else None,
+            "reviewedAt": (
+                a.reviewed_at.isoformat() if getattr(a, "reviewed_at", None) else None
+            ),
             "reviewedByUserId": getattr(a, "reviewed_by_user_id", None),
             "createdAt": a.created_at.isoformat() if a.created_at else None,
         }
@@ -1491,7 +1617,9 @@ async def list_all_attachments(request: Request):
             "label": getattr(a, "label", None),
             "reviewStatus": str(getattr(a, "review_status", "pending") or "pending"),
             "reviewNote": getattr(a, "review_note", None),
-            "reviewedAt": a.reviewed_at.isoformat() if getattr(a, "reviewed_at", None) else None,
+            "reviewedAt": (
+                a.reviewed_at.isoformat() if getattr(a, "reviewed_at", None) else None
+            ),
             "reviewedByUserId": getattr(a, "reviewed_by_user_id", None),
             "createdAt": a.created_at.isoformat() if a.created_at else None,
         }
@@ -1504,7 +1632,9 @@ class AttachmentLabelIn(BaseModel):
 
 
 @app.put("/attachments/{attachment_id}/label")
-async def update_attachment_label(attachment_id: int, payload: AttachmentLabelIn, request: Request):
+async def update_attachment_label(
+    attachment_id: int, payload: AttachmentLabelIn, request: Request
+):
     """Owner updates an attachment label (document type/category)."""
 
     token = _extract_bearer(request.headers.get("authorization"))
@@ -1548,7 +1678,9 @@ async def _store_pilot_employment_attachment(
     if size_bytes == 0:
         raise HTTPException(status_code=400, detail=f"{label} file is empty")
     if size_bytes > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail=f"{label} file too large (max 10MB)")
+        raise HTTPException(
+            status_code=413, detail=f"{label} file too large (max 10MB)"
+        )
 
     stored_filename = build_stored_filename(file.filename)
     put_bytes(
@@ -1584,7 +1716,9 @@ async def submit_pilot_employment_application(
     if not first_name or not last_name or not email:
         raise HTTPException(status_code=400, detail="Missing required applicant fields")
 
-    resume_stored, resume_size = await _store_pilot_employment_attachment(resume, "resume")
+    resume_stored, resume_size = await _store_pilot_employment_attachment(
+        resume, "resume"
+    )
 
     async with AsyncSessionLocal() as session:
         application = PilotEmploymentApplication(
@@ -1616,7 +1750,9 @@ async def submit_pilot_employment_application(
         attachments.append(resume_attachment)
 
         if driver_license and driver_license.filename:
-            stored_filename, size_bytes = await _store_pilot_employment_attachment(driver_license, "driver license")
+            stored_filename, size_bytes = await _store_pilot_employment_attachment(
+                driver_license, "driver license"
+            )
             license_attachment = PilotEmploymentAttachment(
                 application_id=application.id,
                 original_filename=driver_license.filename,
@@ -1629,7 +1765,9 @@ async def submit_pilot_employment_application(
             attachments.append(license_attachment)
 
         if additional_document and additional_document.filename:
-            stored_filename, size_bytes = await _store_pilot_employment_attachment(additional_document, "additional document")
+            stored_filename, size_bytes = await _store_pilot_employment_attachment(
+                additional_document, "additional document"
+            )
             extra_attachment = PilotEmploymentAttachment(
                 application_id=application.id,
                 original_filename=additional_document.filename,
@@ -1651,7 +1789,9 @@ async def submit_pilot_employment_application(
         "last_name": application.last_name,
         "email": application.email,
         "status": application.status,
-        "created_at": application.created_at.isoformat() if application.created_at else None,
+        "created_at": (
+            application.created_at.isoformat() if application.created_at else None
+        ),
         "attachments": [
             {
                 "id": att.id,
@@ -1712,7 +1852,9 @@ async def create_attachment_share_link(
         if not errand:
             raise HTTPException(status_code=404, detail="Errand not found")
 
-        user = await session.get(User, int(user_id), options=AUTH_SAFE_USER_LOAD_OPTIONS)
+        user = await session.get(
+            User, int(user_id), options=AUTH_SAFE_USER_LOAD_OPTIONS
+        )
         user_email = user.email if user else None
 
         is_owner = int(errand.user_id) == int(user_id)
@@ -1789,7 +1931,9 @@ async def download_shared_attachment(token: str, payload: ShareDownloadIn):
 
     async with AsyncSessionLocal() as session:
         res = await session.execute(
-            select(AttachmentShareLink).where(AttachmentShareLink.token_hash == token_hash)
+            select(AttachmentShareLink).where(
+                AttachmentShareLink.token_hash == token_hash
+            )
         )
         link = res.scalars().first()
         if not link:
@@ -1823,7 +1967,9 @@ async def download_shared_attachment(token: str, payload: ShareDownloadIn):
         if not attachment:
             raise HTTPException(status_code=404, detail="Attachment not found")
 
-    print(f"[share] action=download token_hash_prefix={token_hash[:8]} attachment_id={attachment.id}")
+    print(
+        f"[share] action=download token_hash_prefix={token_hash[:8]} attachment_id={attachment.id}"
+    )
 
     cfg = get_storage_config()
     if cfg.driver == "s3":
@@ -1859,7 +2005,9 @@ async def download_shared_attachment_get(token: str, pin: str):
 
     async with AsyncSessionLocal() as session:
         res = await session.execute(
-            select(AttachmentShareLink).where(AttachmentShareLink.token_hash == token_hash)
+            select(AttachmentShareLink).where(
+                AttachmentShareLink.token_hash == token_hash
+            )
         )
         link = res.scalars().first()
         if not link:
@@ -1940,7 +2088,9 @@ async def public_errand_summary(reference_number: str):
     proof_uploaded = bool(errand.photo_url or errand.signature_url or completed_at)
     operator_verified = bool(errand.pilot_id)
     location_verified = bool(errand.started_at or errand.completed_at)
-    app_base_url = (os.getenv("APP_BASE_URL") or "https://www.errandbridge.com").rstrip("/")
+    app_base_url = (os.getenv("APP_BASE_URL") or "https://www.errandbridge.com").rstrip(
+        "/"
+    )
     share_url = f"{app_base_url}/e/{errand.reference_number}"
 
     return PublicErrandSummary(
@@ -1988,8 +2138,13 @@ async def download_attachment(attachment_id: int, request: Request):
         model = await session.get(Errand, attachment.errand_id)
         if not model:
             raise HTTPException(status_code=404, detail="Errand not found")
-        if int(model.user_id) != int(user_id) and (model.pilot_id is None or int(model.pilot_id) != int(user_id)):
-            print(f"[DEBUG] 403 in download_attachment: model.user_id={model.user_id}, model.pilot_id={model.pilot_id}, request user_id={user_id}", flush=True)
+        if int(model.user_id) != int(user_id) and (
+            model.pilot_id is None or int(model.pilot_id) != int(user_id)
+        ):
+            print(
+                f"[DEBUG] 403 in download_attachment: model.user_id={model.user_id}, model.pilot_id={model.pilot_id}, request user_id={user_id}",
+                flush=True,
+            )
             raise HTTPException(status_code=403, detail="Not allowed")
 
     cfg = get_storage_config()
@@ -2031,10 +2186,13 @@ async def ai_suggest(req: AISuggestRequest) -> AISuggestResponse:
     Generate AI-powered errand suggestions using OpenAI GPT-4.
     Enhances user descriptions with professional titles and detailed instructions.
     """
-    print(f"[AI-SUGGEST] OpenAI client initialized: {openai_client is not None}", flush=True)
+    print(
+        f"[AI-SUGGEST] OpenAI client initialized: {openai_client is not None}",
+        flush=True,
+    )
     print(f"[AI-SUGGEST] API Key present: {bool(openai_api_key)}", flush=True)
     print(f"[AI-SUGGEST] Model: {openai_model}", flush=True)
-    
+
     if not openai_client:
         # Fallback to rule-based suggestions if OpenAI not configured
         print("[AI-SUGGEST] OpenAI client not configured, using fallback", flush=True)
@@ -2043,7 +2201,7 @@ async def ai_suggest(req: AISuggestRequest) -> AISuggestResponse:
             title=fallback.title,
             description=fallback.description,
             suggested_template=req.template_id,
-            confidence=0.7
+            confidence=0.7,
         )
 
     # Build the system prompt
@@ -2075,8 +2233,8 @@ Please enhance this errand request with a professional title and detailed instru
             temperature=0.7,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ]
+                {"role": "user", "content": user_message},
+            ],
         )
     except Exception as exc:
         print(f"[AI-SUGGEST] OpenAI request failed, using fallback: {exc}", flush=True)
@@ -2093,6 +2251,7 @@ Please enhance this errand request with a professional title and detailed instru
 
     # Extract JSON from response
     import json
+
     json_str = response_text
     json_start = response_text.find("{")
     json_end = response_text.rfind("}") + 1
@@ -2106,14 +2265,15 @@ Please enhance this errand request with a professional title and detailed instru
         ai_data = {
             "title": "AI-Suggested Errand",
             "description": response_text or req.description,
-            "template": None
+            "template": None,
         }
     return AISuggestResponse(
         title=ai_data.get("title", "Errand Request"),
         description=ai_data.get("description", req.description),
         suggested_template=ai_data.get("template"),
-        confidence=0.95
+        confidence=0.95,
     )
+
 
 @app.get("/")
 def root():

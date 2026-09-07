@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.sql import func
 from database import Base
 
+
 class AttachmentShareLink(Base):
     __tablename__ = "attachment_share_links"
     id = Column(Integer, primary_key=True, index=True)

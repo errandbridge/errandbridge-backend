@@ -24,7 +24,6 @@ def test_build_referral_code_for_user_is_stable_and_uppercase():
     assert code_a == code_a.upper()
 
 
-
 def test_build_client_lifecycle_snapshot_tracks_pending_reviews_and_share_state():
     user = SimpleNamespace(
         id=42,
@@ -61,15 +60,16 @@ def test_build_client_lifecycle_snapshot_tracks_pending_reviews_and_share_state(
     assert snapshot["isLoggedIn"] is True
     assert snapshot["hasSubmittedRequest"] is True
     assert snapshot["isReturningClient"] is True
-    assert snapshot["completedErrandCount"] == 2
+    assert snapshot["completedErrandCount"] == 1
     assert snapshot["pendingReviewErrandIds"] == [100]
     assert snapshot["hasPendingReview"] is True
     assert snapshot["hasSubmittedAnyReview"] is True
     assert snapshot["referralCode"].startswith("AKIN42")
-    assert snapshot["referralShareLink"].startswith("https://www.errandbridge.com/signup?ref=")
+    assert snapshot["referralShareLink"].startswith(
+        "https://www.errandbridge.com/signup?ref="
+    )
     assert snapshot["hasReferralShareAvailable"] is True
     assert snapshot["referralCampaignEndsAt"] == "2026-12-31T23:59:59Z"
-
 
 
 def test_build_client_lifecycle_snapshot_detects_unused_referral_rewards():

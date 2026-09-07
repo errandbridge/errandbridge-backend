@@ -38,8 +38,8 @@ def upgrade() -> None:
     # Create indexes
     op.create_index('idx_pilot_locations_errand_id', 'pilot_locations', ['errand_id'])
     op.create_index('idx_pilot_locations_pilot_id', 'pilot_locations', ['pilot_id'])
-    op.create_index('idx_pilot_locations_created_at', 'pilot_locations', ['created_at'], postgresql_using='DESC')
-    op.create_index('idx_pilot_locations_errand_created', 'pilot_locations', ['errand_id', 'created_at'], postgresql_using='DESC')
+    op.create_index('idx_pilot_locations_created_at', 'pilot_locations', ['created_at'])
+    op.create_index('idx_pilot_locations_errand_created', 'pilot_locations', ['errand_id', 'created_at'])
 
 
 def downgrade() -> None:

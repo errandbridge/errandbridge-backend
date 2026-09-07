@@ -2,7 +2,7 @@ import smtplib
 
 import pytest
 
-import emailer
+from app.services import emailer
 import routes_auth
 
 
@@ -47,7 +47,7 @@ def test_smtp_health_check_sets_tls_hostname(monkeypatch):
         def __enter__(self):
             return self
 
-        def __exit__(self, exc_type, exc, tb):
+        def __exit__(self, _exc_type, exc, _tb):
             return False
 
         def connect(self, host, port):
@@ -113,7 +113,9 @@ async def test_email_health_keeps_configured_smtp_mode_when_health_fails(monkeyp
     monkeypatch.setattr(
         emailer,
         "graph_health_check",
-        lambda: emailer.HealthResult(ok=False, provider="graph", detail="missing_config"),
+        lambda: emailer.HealthResult(
+            ok=False, provider="graph", detail="missing_config"
+        ),
     )
     monkeypatch.setattr(
         emailer,

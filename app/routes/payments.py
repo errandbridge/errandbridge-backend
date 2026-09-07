@@ -6,7 +6,9 @@ from typing import Any, Literal, NamedTuple, Optional
 
 try:
     import stripe
-except ImportError:  # pragma: no cover - handled in environments without stripe installed
+except (
+    ImportError
+):  # pragma: no cover - handled in environments without stripe installed
     stripe = None
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -22,13 +24,13 @@ from models import (
     StripeCheckoutSession,
 )
 from auth import decode_access_token
-from notification_utils import notify_pilot_tip
-from promo_code_service import (
+from app.utils.notification_utils import notify_pilot_tip
+from app.services.promo_code_service import (
     normalize_promo_code,
     validate_promo_code_for_user,
 )
 
-from business_metrics import (
+from app.metrics.business_metrics import (
     observe_stripe_checkout_session,
     observe_stripe_verify_session,
     observe_stripe_webhook,
@@ -205,16 +207,26 @@ def _country_code_from_metadata(metadata: dict[str, Any]) -> str | None:
     if normalized_direct:
         return normalized_direct
 
-    region_key = str(metadata.get("pricing_region_key") or metadata.get("pricingRegionKey") or "").strip().lower()
+    region_key = (
+        str(
+            metadata.get("pricing_region_key") or metadata.get("pricingRegionKey") or ""
+        )
+        .strip()
+        .lower()
+    )
     if region_key and region_key in _PRICING_REGION_KEY_TO_COUNTRY_CODE:
         return _PRICING_REGION_KEY_TO_COUNTRY_CODE[region_key]
 
     return _country_code_from_country_name(
-        metadata.get("country") or metadata.get("country_name") or metadata.get("client_country_name")
+        metadata.get("country")
+        or metadata.get("country_name")
+        or metadata.get("client_country_name")
     )
 
 
-def _route_currency_for_country_code(country_code: str | None, fallback_currency: str) -> str:
+def _route_currency_for_country_code(
+    country_code: str | None, fallback_currency: str
+) -> str:
     if not country_code:
         return fallback_currency
     if country_code == "NG":
@@ -251,7 +263,9 @@ def _resolve_payment_route(
     country_label = _COUNTRY_CODE_TO_LABEL.get(resolved_country_code)
     if not country_label and resolved_country_code in _EUR_COUNTRY_CODES:
         country_label = "Europe"
-    payment_method_family = "stripe_cards" if resolved_country_code == "NG" else "stripe_dynamic"
+    payment_method_family = (
+        "stripe_cards" if resolved_country_code == "NG" else "stripe_dynamic"
+    )
     return PaymentRoute(
         provider="stripe",
         currency=resolved_currency,
@@ -292,8 +306,15 @@ def _allowed_return_origins() -> set[str]:
       (:3001-:3003) don't silently break Stripe redirects during local dev.
     """
 
-    env_name = (os.getenv("ENV") or os.getenv("BACKEND_ENVIRONMENT") or "").strip().lower()
-    is_local_like = env_name in {"local", "dev", "development", "test"} or env_name.startswith("dev")
+    env_name = (
+        (os.getenv("ENV") or os.getenv("BACKEND_ENVIRONMENT") or "").strip().lower()
+    )
+    is_local_like = env_name in {
+        "local",
+        "dev",
+        "development",
+        "test",
+    } or env_name.startswith("dev")
 
     payments_override = _env_csv("PAYMENTS_ALLOWED_ORIGINS")
     if payments_override:
@@ -301,7 +322,11 @@ def _allowed_return_origins() -> set[str]:
         resolved = {o for o in normalized if o}
         # Fail-safe: if the env var is present but invalid, don't lock out local
         # Stripe redirects.
-        default_origins = _DEFAULT_LOCAL_RETURN_ORIGINS if is_local_like else _DEFAULT_PROD_RETURN_ORIGINS
+        default_origins = (
+            _DEFAULT_LOCAL_RETURN_ORIGINS
+            if is_local_like
+            else _DEFAULT_PROD_RETURN_ORIGINS
+        )
         return resolved or set(default_origins)
 
     oauth_origins = _env_csv("OAUTH_ALLOWED_ORIGINS")
@@ -315,7 +340,11 @@ def _allowed_return_origins() -> set[str]:
         raw_origins.extend(cors_origins)
         normalized = {_normalize_origin(o) for o in raw_origins}
         resolved = {o for o in normalized if o}
-        return set(_DEFAULT_PROD_RETURN_ORIGINS) | set(_DEFAULT_LOCAL_RETURN_ORIGINS) | resolved
+        return (
+            set(_DEFAULT_PROD_RETURN_ORIGINS)
+            | set(_DEFAULT_LOCAL_RETURN_ORIGINS)
+            | resolved
+        )
 
     # Non-local: keep strict allowlist behavior.
     raw_origins = oauth_origins or cors_origins
@@ -381,7 +410,9 @@ def _currency_minor_per_major(currency: str) -> int:
     return 100
 
 
-def _compute_ngn_major(amount_total_minor: int | None, currency: str | None) -> int | None:
+def _compute_ngn_major(
+    amount_total_minor: int | None, currency: str | None
+) -> int | None:
     """Compute canonical NGN major (rounded) from Stripe amount_total minor units."""
     if amount_total_minor is None:
         return None
@@ -465,9 +496,9 @@ class VerifySessionResponse(BaseModel):
 
 
 class PaymentsHealthResponse(BaseModel):
-        configured: bool
-        subscription_configured: bool
-        provider: str = "stripe"
+    configured: bool
+    subscription_configured: bool
+    provider: str = "stripe"
 
 
 class MySubscriptionResponse(BaseModel):
@@ -487,7 +518,9 @@ def _get_metadata(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _parse_errand_id(metadata: dict[str, Any]) -> Optional[int]:
-    errand_id = metadata.get("errand_id") or metadata.get("errandId") or metadata.get("errand")
+    errand_id = (
+        metadata.get("errand_id") or metadata.get("errandId") or metadata.get("errand")
+    )
     if errand_id is None:
         return None
     try:
@@ -546,7 +579,9 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
 
 
 async def _resolve_user_id_from_request(request: Request) -> Optional[int]:
-    header = request.headers.get("authorization") or request.headers.get("Authorization")
+    header = request.headers.get("authorization") or request.headers.get(
+        "Authorization"
+    )
     token = _extract_bearer(header)
     user_id = decode_access_token(token) if token else None
     try:
@@ -598,9 +633,15 @@ def _event_payload(event: Any) -> dict[str, Any]:
 def _ensure_stripe_ready() -> None:
     secret_key = (os.getenv("STRIPE_SECRET_KEY") or "").strip()
     if not secret_key:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Stripe secret key not configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stripe secret key not configured",
+        )
     if stripe is None:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Stripe SDK not installed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stripe SDK not installed",
+        )
     stripe.api_key = secret_key
 
 
@@ -637,7 +678,11 @@ def _resolve_checkout_mode(payload: CheckoutSessionRequest) -> str:
 
 
 def _subscription_price_id() -> str:
-    price_id = (os.getenv("STRIPE_PLUS_PRICE_ID") or os.getenv("STRIPE_SUBSCRIPTION_PRICE_ID") or "").strip()
+    price_id = (
+        os.getenv("STRIPE_PLUS_PRICE_ID")
+        or os.getenv("STRIPE_SUBSCRIPTION_PRICE_ID")
+        or ""
+    ).strip()
     if not price_id:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -656,7 +701,13 @@ async def payments_health():
     secret_key = bool((os.getenv("STRIPE_SECRET_KEY") or "").strip())
     sdk_ready = stripe is not None
     configured = secret_key and sdk_ready
-    subscription_configured = bool((os.getenv("STRIPE_PLUS_PRICE_ID") or os.getenv("STRIPE_SUBSCRIPTION_PRICE_ID") or "").strip())
+    subscription_configured = bool(
+        (
+            os.getenv("STRIPE_PLUS_PRICE_ID")
+            or os.getenv("STRIPE_SUBSCRIPTION_PRICE_ID")
+            or ""
+        ).strip()
+    )
     return PaymentsHealthResponse(
         configured=configured,
         subscription_configured=subscription_configured,
@@ -718,7 +769,9 @@ async def quote_checkout(payload: QuoteRequest, request: Request):
     # Tips do not get the global multiplier in checkout-session, but quote remains
     # based on the UI amount to keep the contract simple.
     if kind == _TIP_KIND:
-        final_amount_cents = ui_amount_cents if promo_percent_off is None else final_amount_cents
+        final_amount_cents = (
+            ui_amount_cents if promo_percent_off is None else final_amount_cents
+        )
 
     return QuoteResponse(
         ui_amount_cents=ui_amount_cents,
@@ -754,9 +807,13 @@ async def my_subscription(request: Request):
         active=active,
         status=status_val,
         plan="plus",
-        cancel_at_period_end=bool(getattr(sub, "cancel_at_period_end", False)) if sub else False,
+        cancel_at_period_end=(
+            bool(getattr(sub, "cancel_at_period_end", False)) if sub else False
+        ),
         current_period_end=getattr(sub, "current_period_end", None) if sub else None,
-        stripe_subscription_id=getattr(sub, "stripe_subscription_id", None) if sub else None,
+        stripe_subscription_id=(
+            getattr(sub, "stripe_subscription_id", None) if sub else None
+        ),
     )
 
 
@@ -802,7 +859,11 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
         metadata.setdefault("client_country_name", str(payload.country).strip())
 
     # Keep 'kind' low-cardinality: payment | tip | subscription.
-    kind = "subscription" if checkout_mode == "subscription" else _parse_checkout_kind(metadata)
+    kind = (
+        "subscription"
+        if checkout_mode == "subscription"
+        else _parse_checkout_kind(metadata)
+    )
 
     session_kwargs: dict[str, Any] = {
         "success_url": _build_success_url(frontend_origin),
@@ -816,7 +877,9 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
     # Local debugging: Stripe receipt-on-return depends on these URLs pointing back
     # to the SAME origin that initiated checkout (so sessionStorage snapshots exist).
     try:
-        env_name = (os.getenv("ENV") or os.getenv("BACKEND_ENVIRONMENT") or "").strip().lower()
+        env_name = (
+            (os.getenv("ENV") or os.getenv("BACKEND_ENVIRONMENT") or "").strip().lower()
+        )
         if env_name == "local":
             raw_origin = request.headers.get("origin")
             raw_referer = request.headers.get("referer")
@@ -859,7 +922,10 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
         )
     else:
         if payload.amount_cents is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="amount_cents is required")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="amount_cents is required",
+            )
 
         amount_cents = int(payload.amount_cents)
         metadata_to_use: dict[str, Any] = dict(metadata or {})
@@ -867,7 +933,9 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
         # Tip validation (customer-initiated, post-completion)
         kind = _parse_checkout_kind(metadata_to_use)
         if kind == _TIP_KIND:
-            tip_errand_id = _parse_tip_errand_id(metadata_to_use) or _parse_errand_id(metadata_to_use)
+            tip_errand_id = _parse_tip_errand_id(metadata_to_use) or _parse_errand_id(
+                metadata_to_use
+            )
             if not tip_errand_id:
                 raise HTTPException(status_code=400, detail="Missing tip_errand_id")
 
@@ -880,7 +948,9 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
                 if not errand:
                     raise HTTPException(status_code=404, detail="Errand not found")
                 if int(errand.user_id) != int(user_id):
-                    raise HTTPException(status_code=403, detail="You do not own this errand")
+                    raise HTTPException(
+                        status_code=403, detail="You do not own this errand"
+                    )
 
                 status_key = (errand.status or "").strip().lower()
                 if status_key not in {"completed", "accepted"}:
@@ -901,8 +971,12 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
 
         # Global price-model reduction applies to standard payments, but never to tips.
         if kind != _TIP_KIND:
-            amount_cents = _apply_price_model_multiplier(amount_cents, _PRICE_MODEL_MULTIPLIER)
-            metadata_to_use.setdefault("price_model_multiplier", str(_PRICE_MODEL_MULTIPLIER))
+            amount_cents = _apply_price_model_multiplier(
+                amount_cents, _PRICE_MODEL_MULTIPLIER
+            )
+            metadata_to_use.setdefault(
+                "price_model_multiplier", str(_PRICE_MODEL_MULTIPLIER)
+            )
 
         promo_raw = payload.promo_code
         if promo_raw:
@@ -951,7 +1025,10 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
         session = stripe.checkout.Session.create(**session_kwargs)
     except Exception as exc:  # noqa: BLE001
         observe_stripe_checkout_session(result="error", mode=checkout_mode, kind=kind)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Stripe session creation failed") from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Stripe session creation failed",
+        ) from exc
 
     observe_stripe_checkout_session(result="ok", mode=checkout_mode, kind=kind)
 
@@ -993,14 +1070,21 @@ async def verify_checkout_session(payload: VerifySessionRequest):
         raise
 
     try:
-        session = stripe.checkout.Session.retrieve(payload.session_id, expand=["subscription"])
+        session = stripe.checkout.Session.retrieve(
+            payload.session_id, expand=["subscription"]
+        )
     except Exception as exc:  # noqa: BLE001
         observe_stripe_verify_session(result="error", paid=False, kind="unknown")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Stripe session lookup failed") from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Stripe session lookup failed",
+        ) from exc
 
     subscription = getattr(session, "subscription", None)
     subscription_id = getattr(subscription, "id", None) if subscription else None
-    subscription_status = getattr(subscription, "status", None) if subscription else None
+    subscription_status = (
+        getattr(subscription, "status", None) if subscription else None
+    )
 
     paid = session.payment_status == "paid"
     if session.mode == "subscription" and subscription_status in {"active", "trialing"}:
@@ -1014,7 +1098,11 @@ async def verify_checkout_session(payload: VerifySessionRequest):
     except Exception:
         metadata = {}
 
-    kind = "subscription" if session.mode == "subscription" else _parse_checkout_kind(metadata)
+    kind = (
+        "subscription"
+        if session.mode == "subscription"
+        else _parse_checkout_kind(metadata)
+    )
     errand_id = _parse_errand_id(metadata) if kind != _TIP_KIND else None
     tip_errand_id = _parse_tip_errand_id(metadata) if kind == _TIP_KIND else None
 
@@ -1023,7 +1111,9 @@ async def verify_checkout_session(payload: VerifySessionRequest):
         status=session.status,
         payment_status=session.payment_status,
         mode=session.mode,
-        customer_email=getattr(getattr(session, "customer_details", None), "email", None),
+        customer_email=getattr(
+            getattr(session, "customer_details", None), "email", None
+        ),
         amount_total=session.amount_total,
         currency=session.currency,
         subscription_id=subscription_id,
@@ -1047,19 +1137,26 @@ async def verify_checkout_session(payload: VerifySessionRequest):
                 sess_row = StripeCheckoutSession(stripe_session_id=str(session.id))
                 db.add(sess_row)
 
-            sess_row.user_id = sess_row.user_id or (int(metadata_user_id) if metadata_user_id else None)
+            sess_row.user_id = sess_row.user_id or (
+                int(metadata_user_id) if metadata_user_id else None
+            )
             sess_row.kind = str(kind or sess_row.kind or "payment")
             sess_row.mode = str(session.mode or sess_row.mode or "payment")
             sess_row.paid = bool(paid)
             sess_row.amount_total_minor = session.amount_total
             sess_row.currency = session.currency
-            sess_row.stripe_customer_id = getattr(session, "customer", None) or sess_row.stripe_customer_id
-            sess_row.stripe_subscription_id = subscription_id or sess_row.stripe_subscription_id
+            sess_row.stripe_customer_id = (
+                getattr(session, "customer", None) or sess_row.stripe_customer_id
+            )
+            sess_row.stripe_subscription_id = (
+                subscription_id or sess_row.stripe_subscription_id
+            )
 
             if session.mode == "subscription" and subscription_id and metadata_user_id:
                 sub_row = await db.scalar(
                     select(ClientSubscription).where(
-                        ClientSubscription.stripe_subscription_id == str(subscription_id)
+                        ClientSubscription.stripe_subscription_id
+                        == str(subscription_id)
                     )
                 )
                 if not sub_row:
@@ -1078,11 +1175,15 @@ async def verify_checkout_session(payload: VerifySessionRequest):
                     or sub_row.stripe_customer_id
                 )
                 sub_row.stripe_subscription_id = str(subscription_id)
-                sub_row.cancel_at_period_end = bool(getattr(subscription, "cancel_at_period_end", False))
+                sub_row.cancel_at_period_end = bool(
+                    getattr(subscription, "cancel_at_period_end", False)
+                )
 
                 period_end = getattr(subscription, "current_period_end", None)
                 if isinstance(period_end, int):
-                    sub_row.current_period_end = datetime.fromtimestamp(period_end, tz=timezone.utc)
+                    sub_row.current_period_end = datetime.fromtimestamp(
+                        period_end, tz=timezone.utc
+                    )
 
             await db.commit()
     except Exception:
@@ -1099,19 +1200,33 @@ async def verify_checkout_session(payload: VerifySessionRequest):
                     if errand and getattr(errand, "tip_paid_at", None) is None:
                         # Safety check: ensure the Stripe customer email matches the errand owner.
                         customer_email = (
-                            getattr(getattr(session, "customer_details", None), "email", None)
-                            or getattr(session, "customer_email", None)
-                            or ""
-                        ).strip().lower()
+                            (
+                                getattr(
+                                    getattr(session, "customer_details", None),
+                                    "email",
+                                    None,
+                                )
+                                or getattr(session, "customer_email", None)
+                                or ""
+                            )
+                            .strip()
+                            .lower()
+                        )
 
                         owner_email = ""
                         try:
                             owner = await db.get(User, int(errand.user_id))
-                            owner_email = (owner.email or "").strip().lower() if owner else ""
+                            owner_email = (
+                                (owner.email or "").strip().lower() if owner else ""
+                            )
                         except Exception:
                             owner_email = ""
 
-                        if customer_email and owner_email and customer_email != owner_email:
+                        if (
+                            customer_email
+                            and owner_email
+                            and customer_email != owner_email
+                        ):
                             # Do not persist tips to an unrelated errand.
                             return response
 
@@ -1128,7 +1243,9 @@ async def verify_checkout_session(payload: VerifySessionRequest):
                                 errand.tip_stripe_session_id = session.id
                             if hasattr(errand, "tip"):
                                 minor_per_major = _currency_minor_per_major(currency)
-                                errand.tip = float(amount_total_minor) / float(minor_per_major)
+                                errand.tip = float(amount_total_minor) / float(
+                                    minor_per_major
+                                )
 
                             note = f"stripe_session={session.id} tip={amount_total_minor} {currency}"
                             db.add(
@@ -1171,14 +1288,24 @@ async def verify_checkout_session(payload: VerifySessionRequest):
                             )
                         db.add(errand)
 
-                        promo_code_raw = metadata.get("promo_code") if isinstance(metadata, dict) else None
+                        promo_code_raw = (
+                            metadata.get("promo_code")
+                            if isinstance(metadata, dict)
+                            else None
+                        )
                         if promo_code_raw:
                             canonical = normalize_promo_code(str(promo_code_raw))
                             if canonical:
-                                promo = await db.scalar(select(PromoCode).where(PromoCode.code == canonical))
+                                promo = await db.scalar(
+                                    select(PromoCode).where(PromoCode.code == canonical)
+                                )
                                 if promo and not promo.redeemed_at:
-                                    if promo.user_id is None or int(promo.user_id) == int(errand.user_id):
-                                        promo.redeemed_count = int(promo.redeemed_count or 0) + 1
+                                    if promo.user_id is None or int(
+                                        promo.user_id
+                                    ) == int(errand.user_id):
+                                        promo.redeemed_count = (
+                                            int(promo.redeemed_count or 0) + 1
+                                        )
                                         promo.redeemed_at = datetime.now(timezone.utc)
                                         promo.redeemed_errand_id = int(errand.id)
                                         db.add(promo)
@@ -1201,17 +1328,25 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
             if stripe is None:
                 raise HTTPException(status_code=500, detail="Stripe SDK not installed")
             try:
-                event = stripe.Webhook.construct_event(payload, signature_header, webhook_secret)
+                event = stripe.Webhook.construct_event(
+                    payload, signature_header, webhook_secret
+                )
             except Exception as exc:  # noqa: BLE001
                 observe_stripe_webhook_signature_invalid()
-                observe_stripe_webhook(endpoint=endpoint, result="invalid", event_type=None, kind="unknown")
-                raise HTTPException(status_code=400, detail="Invalid Stripe payload") from exc
+                observe_stripe_webhook(
+                    endpoint=endpoint, result="invalid", event_type=None, kind="unknown"
+                )
+                raise HTTPException(
+                    status_code=400, detail="Invalid Stripe payload"
+                ) from exc
         else:
             event = json.loads(payload.decode("utf-8"))
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
-        observe_stripe_webhook(endpoint=endpoint, result="invalid", event_type=None, kind="unknown")
+        observe_stripe_webhook(
+            endpoint=endpoint, result="invalid", event_type=None, kind="unknown"
+        )
         raise HTTPException(status_code=400, detail="Invalid Stripe payload") from exc
 
     event_data = _event_payload(event)
@@ -1226,10 +1361,14 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
     target_errand_id = tip_errand_id if kind == _TIP_KIND else errand_id
 
     # We count the webhook as "ok" once parsed; downstream DB errors are tracked separately.
-    observe_stripe_webhook(endpoint=endpoint, result="received", event_type=event_type, kind=kind)
+    observe_stripe_webhook(
+        endpoint=endpoint, result="received", event_type=event_type, kind=kind
+    )
 
     # Subscription reconciliation (no errand_id involved).
-    if kind == "subscription" or (event_type or "").startswith("customer.subscription."):
+    if kind == "subscription" or (event_type or "").startswith(
+        "customer.subscription."
+    ):
         metadata_user_id = _parse_user_id(metadata)
         subscription_id = data_object.get("subscription") or data_object.get("id")
         subscription_status = data_object.get("status")
@@ -1238,7 +1377,11 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
         stripe_customer_id = data_object.get("customer")
 
         # For checkout.session events, fetch the expanded subscription when possible.
-        if (event_type or "") == "checkout.session.completed" and subscription_id and stripe is not None:
+        if (
+            (event_type or "") == "checkout.session.completed"
+            and subscription_id
+            and stripe is not None
+        ):
             try:
                 _ensure_stripe_ready()
                 full_session = stripe.checkout.Session.retrieve(
@@ -1247,10 +1390,16 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
                 )
                 sub_obj = getattr(full_session, "subscription", None)
                 if sub_obj is not None:
-                    subscription_status = getattr(sub_obj, "status", None) or subscription_status
-                    cancel_at_period_end = getattr(sub_obj, "cancel_at_period_end", None)
+                    subscription_status = (
+                        getattr(sub_obj, "status", None) or subscription_status
+                    )
+                    cancel_at_period_end = getattr(
+                        sub_obj, "cancel_at_period_end", None
+                    )
                     current_period_end = getattr(sub_obj, "current_period_end", None)
-                    stripe_customer_id = getattr(sub_obj, "customer", None) or stripe_customer_id
+                    stripe_customer_id = (
+                        getattr(sub_obj, "customer", None) or stripe_customer_id
+                    )
             except Exception:
                 pass
 
@@ -1258,7 +1407,8 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
             async with AsyncSessionLocal() as db:
                 sub_row = await db.scalar(
                     select(ClientSubscription).where(
-                        ClientSubscription.stripe_subscription_id == str(subscription_id)
+                        ClientSubscription.stripe_subscription_id
+                        == str(subscription_id)
                     )
                 )
                 if not sub_row:
@@ -1278,7 +1428,9 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
                 if cancel_at_period_end is not None:
                     sub_row.cancel_at_period_end = bool(cancel_at_period_end)
                 if isinstance(current_period_end, int):
-                    sub_row.current_period_end = datetime.fromtimestamp(current_period_end, tz=timezone.utc)
+                    sub_row.current_period_end = datetime.fromtimestamp(
+                        current_period_end, tz=timezone.utc
+                    )
 
                 # Track checkout-session completion too, when the webhook object is a checkout session.
                 session_id = data_object.get("id")
@@ -1289,20 +1441,32 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
                         )
                     )
                     if not sess_row:
-                        sess_row = StripeCheckoutSession(stripe_session_id=str(session_id))
+                        sess_row = StripeCheckoutSession(
+                            stripe_session_id=str(session_id)
+                        )
                         db.add(sess_row)
                     sess_row.user_id = sess_row.user_id or int(metadata_user_id)
                     sess_row.kind = "subscription"
                     sess_row.mode = "subscription"
-                    sess_row.stripe_customer_id = stripe_customer_id or sess_row.stripe_customer_id
+                    sess_row.stripe_customer_id = (
+                        stripe_customer_id or sess_row.stripe_customer_id
+                    )
                     sess_row.stripe_subscription_id = str(subscription_id)
 
                     payment_status = data_object.get("payment_status")
-                    sess_row.paid = bool(payment_status == "paid" or (sub_row.status in {"active", "trialing"}))
+                    sess_row.paid = bool(
+                        payment_status == "paid"
+                        or (sub_row.status in {"active", "trialing"})
+                    )
 
                 await db.commit()
 
-        observe_stripe_webhook(endpoint=endpoint, result="processed", event_type=event_type, kind="subscription")
+        observe_stripe_webhook(
+            endpoint=endpoint,
+            result="processed",
+            event_type=event_type,
+            kind="subscription",
+        )
         return {"received": True}
 
     try:
@@ -1317,9 +1481,11 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
                     event_label = (
                         "tip_confirmed"
                         if event_type in _PAYMENT_CONFIRMED_TYPES
-                        else "tip_failed"
-                        if event_type in _PAYMENT_FAILED_TYPES
-                        else "stripe_event"
+                        else (
+                            "tip_failed"
+                            if event_type in _PAYMENT_FAILED_TYPES
+                            else "stripe_event"
+                        )
                     )
 
                     note = f"stripe_event={event_data.get('id')} type={event_type}"
@@ -1329,7 +1495,11 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
                     # Only persist on confirmed events.
                     if event_type in _PAYMENT_CONFIRMED_TYPES:
                         # Idempotency: do nothing if already recorded.
-                        if getattr(errand, "tip_paid_at", None) is None and isinstance(amount_total, int) and currency:
+                        if (
+                            getattr(errand, "tip_paid_at", None) is None
+                            and isinstance(amount_total, int)
+                            and currency
+                        ):
                             if hasattr(errand, "tip_amount_total_minor"):
                                 errand.tip_amount_total_minor = amount_total
                             if hasattr(errand, "tip_currency"):
@@ -1337,10 +1507,14 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
                             if hasattr(errand, "tip_paid_at"):
                                 errand.tip_paid_at = datetime.now(timezone.utc)
                             if hasattr(errand, "tip_stripe_session_id"):
-                                errand.tip_stripe_session_id = data_object.get("id") or event_data.get("id")
+                                errand.tip_stripe_session_id = data_object.get(
+                                    "id"
+                                ) or event_data.get("id")
                             if hasattr(errand, "tip"):
                                 minor_per_major = _currency_minor_per_major(currency)
-                                errand.tip = float(amount_total) / float(minor_per_major)
+                                errand.tip = float(amount_total) / float(
+                                    minor_per_major
+                                )
                             session_db.add(errand)
 
                     session_db.add(
@@ -1373,7 +1547,12 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
                         except Exception:
                             pass
 
-                    observe_stripe_webhook(endpoint=endpoint, result="processed", event_type=event_type, kind=kind)
+                    observe_stripe_webhook(
+                        endpoint=endpoint,
+                        result="processed",
+                        event_type=event_type,
+                        kind=kind,
+                    )
                     return {"received": True}
 
                 # Default behavior: persist payment metadata + log Stripe events.
@@ -1383,15 +1562,19 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
                     if hasattr(errand, "payment_currency"):
                         errand.payment_currency = currency
                     if hasattr(errand, "payment_amount_ngn_major"):
-                        errand.payment_amount_ngn_major = _compute_ngn_major(amount_total, currency)
+                        errand.payment_amount_ngn_major = _compute_ngn_major(
+                            amount_total, currency
+                        )
                     session_db.add(errand)
 
                 event_label = (
                     "payment_confirmed"
                     if event_type in _PAYMENT_CONFIRMED_TYPES
-                    else "payment_failed"
-                    if event_type in _PAYMENT_FAILED_TYPES
-                    else "stripe_event"
+                    else (
+                        "payment_failed"
+                        if event_type in _PAYMENT_FAILED_TYPES
+                        else "stripe_event"
+                    )
                 )
                 note = f"stripe_event={event_data.get('id')} type={event_type}"
                 session_db.add(
@@ -1414,21 +1597,34 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
                                 select(PromoCode).where(PromoCode.code == canonical)
                             )
                             if promo and not promo.redeemed_at:
-                                if promo.user_id is None or int(promo.user_id) == int(errand.user_id):
-                                    promo.redeemed_count = int(promo.redeemed_count or 0) + 1
+                                if promo.user_id is None or int(promo.user_id) == int(
+                                    errand.user_id
+                                ):
+                                    promo.redeemed_count = (
+                                        int(promo.redeemed_count or 0) + 1
+                                    )
                                     promo.redeemed_at = datetime.now(timezone.utc)
                                     promo.redeemed_errand_id = int(errand.id)
                                     session_db.add(promo)
 
                 await session_db.commit()
 
-                observe_stripe_webhook(endpoint=endpoint, result="processed", event_type=event_type, kind=kind)
+                observe_stripe_webhook(
+                    endpoint=endpoint,
+                    result="processed",
+                    event_type=event_type,
+                    kind=kind,
+                )
 
     except HTTPException:
-        observe_stripe_webhook(endpoint=endpoint, result="error", event_type=event_type, kind=kind)
+        observe_stripe_webhook(
+            endpoint=endpoint, result="error", event_type=event_type, kind=kind
+        )
         raise
     except Exception:
-        observe_stripe_webhook(endpoint=endpoint, result="error", event_type=event_type, kind=kind)
+        observe_stripe_webhook(
+            endpoint=endpoint, result="error", event_type=event_type, kind=kind
+        )
         raise
 
     return {"received": True}

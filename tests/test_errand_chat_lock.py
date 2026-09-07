@@ -25,7 +25,9 @@ async def test_send_errand_message_is_blocked_after_completion(monkeypatch):
         return errand
 
     monkeypatch.setattr(errand_messages, "_get_current_user", fake_current_user)
-    monkeypatch.setattr(errand_messages, "_require_participant", fake_require_participant)
+    monkeypatch.setattr(
+        errand_messages, "_require_participant", fake_require_participant
+    )
 
     with pytest.raises(errand_messages.HTTPException) as exc_info:
         await errand_messages.send_errand_message(

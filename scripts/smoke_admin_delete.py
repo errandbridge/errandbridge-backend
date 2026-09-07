@@ -57,7 +57,9 @@ def _request(
     resp = conn.getresponse()
     resp_body = resp.read() or b""
     resp_headers = {k.lower(): v for k, v in resp.getheaders()}
-    return HttpResult(status=resp.status, reason=resp.reason, headers=resp_headers, body=resp_body)
+    return HttpResult(
+        status=resp.status, reason=resp.reason, headers=resp_headers, body=resp_body
+    )
 
 
 def request_json(
@@ -100,7 +102,7 @@ def request_multipart_file(
     parts.append(
         (
             f"--{boundary}\r\n"
-            f"Content-Disposition: form-data; name=\"{field_name}\"; filename=\"{filename}\"\r\n"
+            f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
             f"Content-Type: {content_type}\r\n\r\n"
         ).encode("utf-8")
     )
@@ -169,7 +171,9 @@ def main() -> int:
         payload={"email": admin_email, "password": admin_pass},
     )
     if res.status >= 400:
-        raise RuntimeError(f"Admin login failed ({res.status}): {res.body.decode('utf-8', 'ignore')}")
+        raise RuntimeError(
+            f"Admin login failed ({res.status}): {res.body.decode('utf-8', 'ignore')}"
+        )
     admin_token = _must_token(admin_login)
 
     # Create pilot
@@ -193,7 +197,9 @@ def main() -> int:
         payload={"email": pilot_email, "password": pilot_pass},
     )
     if res.status >= 400:
-        raise RuntimeError(f"Pilot login failed ({res.status}): {res.body.decode('utf-8', 'ignore')}")
+        raise RuntimeError(
+            f"Pilot login failed ({res.status}): {res.body.decode('utf-8', 'ignore')}"
+        )
 
     pilot_token = _must_token(pilot_login)
     pilot_id = _must_user_id(pilot_login)

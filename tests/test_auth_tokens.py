@@ -1,4 +1,9 @@
-from auth import create_access_token, create_refresh_token, decode_access_token, decode_refresh_token
+from auth import (
+    create_access_token,
+    create_refresh_token,
+    decode_access_token,
+    decode_refresh_token,
+)
 
 
 def test_refresh_token_is_not_accepted_as_access_token():

@@ -8,7 +8,6 @@ Create Date: 2026-04-12 19:15:00.000000
 from alembic import op
 import sqlalchemy as sa
 
-
 # revision identifiers, used by Alembic.
 revision = "014_add_pilot_dispatch_policy"
 down_revision = "013_add_pilot_dispatch_controls"
@@ -32,8 +31,12 @@ def upgrade() -> None:
             nullable=False,
             server_default="10",
         ),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
         sa.Column("updated_by_user_id", sa.Integer(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -49,5 +52,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_pilot_dispatch_policies_id"), table_name="pilot_dispatch_policies")
+    op.drop_index(
+        op.f("ix_pilot_dispatch_policies_id"), table_name="pilot_dispatch_policies"
+    )
     op.drop_table("pilot_dispatch_policies")

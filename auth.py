@@ -22,7 +22,9 @@ PWD_CONTEXT = CryptContext(
 # Support both names:
 # - Local/dev uses JWT_SECRET_KEY (historical)
 # - ECS task definition injects JWT_SECRET (strict-mode via SSM)
-JWT_SECRET_KEY = os.getenv("JWT_SECRET") or os.getenv("JWT_SECRET_KEY", "dev-secret-change-me")
+JWT_SECRET_KEY = os.getenv("JWT_SECRET") or os.getenv(
+    "JWT_SECRET_KEY", "dev-secret-change-me"
+)
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "10080"))  # 7 days
 JWT_REFRESH_EXPIRES_DAYS = int(os.getenv("JWT_REFRESH_EXPIRES_DAYS", "30"))
@@ -34,12 +36,16 @@ def _env_truthy(value: str | None) -> bool:
 
 def is_production_like_env() -> bool:
     env = (
-        os.getenv("ENV")
-        or os.getenv("BACKEND_ENVIRONMENT")
-        or os.getenv("ENVIRONMENT")
-        or os.getenv("APP_ENV")
-        or ""
-    ).strip().lower()
+        (
+            os.getenv("ENV")
+            or os.getenv("BACKEND_ENVIRONMENT")
+            or os.getenv("ENVIRONMENT")
+            or os.getenv("APP_ENV")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
 
     if env in {"prod", "production"}:
         return True
@@ -73,7 +79,9 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_access_token(*, user_id: int, expires_minutes: Optional[int] = None) -> str:
     now = datetime.now(timezone.utc)
-    token_minutes = JWT_EXPIRES_MINUTES if expires_minutes is None else int(expires_minutes)
+    token_minutes = (
+        JWT_EXPIRES_MINUTES if expires_minutes is None else int(expires_minutes)
+    )
     exp = now + timedelta(minutes=token_minutes)
     payload = {
         "sub": str(user_id),

@@ -16,6 +16,21 @@ class DummyUser:
         self.is_pilot = is_pilot
         self.address_verification_status = "pending"
         self.id_verification_status = "pending"
+        self.email_otp_hash = None
+
+
+class FakeDB:
+    def __init__(self):
+        self.added = []
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def commit(self):
+        pass
+
+    async def refresh(self, obj):
+        pass
 
 
 @pytest.mark.asyncio
@@ -27,9 +42,13 @@ async def test_rest_login_allows_pilot_account_in_client_mode(monkeypatch):
         return pilot_user
 
     monkeypatch.setattr(routes_auth, "_get_user_by_email", fake_get_user_by_email)
-    monkeypatch.setattr(routes_auth, "verify_password", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(routes_auth, "create_access_token", lambda user_id: f"token-{user_id}")
-    monkeypatch.setattr(routes_auth, "create_refresh_token", lambda user_id: f"refresh-{user_id}")
+    monkeypatch.setattr(routes_auth, "_check_otp", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        routes_auth, "create_access_token", lambda user_id: f"token-{user_id}"
+    )
+    monkeypatch.setattr(
+        routes_auth, "create_refresh_token", lambda user_id: f"refresh-{user_id}"
+    )
     monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
 
     response = await routes_auth.login(
@@ -38,7 +57,7 @@ async def test_rest_login_allows_pilot_account_in_client_mode(monkeypatch):
             password="password123",
             role="client",
         ),
-        db=object(),
+        db=FakeDB(),
     )
 
     assert response.access_token == "token-101"
@@ -54,7 +73,7 @@ async def test_rest_login_rejects_client_account_in_pilot_mode(monkeypatch):
         return client_user
 
     monkeypatch.setattr(routes_auth, "_get_user_by_email", fake_get_user_by_email)
-    monkeypatch.setattr(routes_auth, "verify_password", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(routes_auth, "_check_otp", lambda *_args, **_kwargs: True)
 
     with pytest.raises(HTTPException) as exc_info:
         await routes_auth.login(
@@ -63,7 +82,7 @@ async def test_rest_login_rejects_client_account_in_pilot_mode(monkeypatch):
                 password="password123",
                 role="pilot",
             ),
-            db=object(),
+            db=FakeDB(),
         )
 
     assert exc_info.value.status_code == 403
@@ -78,9 +97,13 @@ async def test_rest_login_allows_matching_role(monkeypatch):
         return pilot_user
 
     monkeypatch.setattr(routes_auth, "_get_user_by_email", fake_get_user_by_email)
-    monkeypatch.setattr(routes_auth, "verify_password", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(routes_auth, "create_access_token", lambda user_id: f"token-{user_id}")
-    monkeypatch.setattr(routes_auth, "create_refresh_token", lambda user_id: f"refresh-{user_id}")
+    monkeypatch.setattr(routes_auth, "_check_otp", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        routes_auth, "create_access_token", lambda user_id: f"token-{user_id}"
+    )
+    monkeypatch.setattr(
+        routes_auth, "create_refresh_token", lambda user_id: f"refresh-{user_id}"
+    )
     monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
 
     response = await routes_auth.login(
@@ -89,7 +112,7 @@ async def test_rest_login_allows_matching_role(monkeypatch):
             password="password123",
             role="pilot",
         ),
-        db=object(),
+        db=FakeDB(),
     )
 
     assert response.access_token == "token-101"
@@ -107,9 +130,17 @@ async def test_refresh_session_exchanges_refresh_token(monkeypatch):
             assert user_id == 101
             return user
 
-    monkeypatch.setattr(routes_auth, "decode_refresh_token", lambda token: 101 if token == "refresh-token" else None)
-    monkeypatch.setattr(routes_auth, "create_access_token", lambda user_id: f"token-{user_id}")
-    monkeypatch.setattr(routes_auth, "create_refresh_token", lambda user_id: f"refresh-{user_id}")
+    monkeypatch.setattr(
+        routes_auth,
+        "decode_refresh_token",
+        lambda token: 101 if token == "refresh-token" else None,
+    )
+    monkeypatch.setattr(
+        routes_auth, "create_access_token", lambda user_id: f"token-{user_id}"
+    )
+    monkeypatch.setattr(
+        routes_auth, "create_refresh_token", lambda user_id: f"refresh-{user_id}"
+    )
     monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
 
     response = await routes_auth.refresh_session(
@@ -141,13 +172,18 @@ async def test_google_auth_allows_pilot_signup_with_existing_client_email(monkey
         return client_user
 
     monkeypatch.setattr(routes_auth, "_get_user_by_email", fake_get_user_by_email)
-    monkeypatch.setattr(routes_auth, "create_access_token", lambda user_id: f"token-{user_id}")
-    monkeypatch.setattr(routes_auth, "create_refresh_token", lambda user_id: f"refresh-{user_id}")
+    monkeypatch.setattr(
+        routes_auth, "create_access_token", lambda user_id: f"token-{user_id}"
+    )
+    monkeypatch.setattr(
+        routes_auth, "create_refresh_token", lambda user_id: f"refresh-{user_id}"
+    )
     monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
 
     class MockDB:
         async def commit(self):
             pass
+
         async def refresh(self, obj):
             pass
 

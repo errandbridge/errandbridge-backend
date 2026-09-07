@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 import os
 import pathlib
 
-from admin_utils import (
+from app.utils.admin_utils import (
     require_admin_user,
     admin_emails,
     is_elevated_admin_email,
@@ -43,23 +43,28 @@ from models import (
     PilotEmploymentAttachment,
 )
 
-from storage import get_storage_config, presign_or_stream_key, s3_key, delete_object_if_exists
-from ml_client import score_issue
-from notification_utils import (
+from app.services.storage import (
+    get_storage_config,
+    presign_or_stream_key,
+    s3_key,
+    delete_object_if_exists,
+)
+from app.services.ml_client import score_issue
+from app.utils.notification_utils import (
     notify_customer_status,
     notify_pilot_status,
     notify_admin_status,
     notify_pilot_document_review,
 )
-from emailer import send_email
+from app.services.emailer import send_email
 import hashlib
 import secrets
-from metrics_admin import update_admin_metrics
+from app.metrics.metrics_admin import update_admin_metrics
 import json
 from fastapi.responses import JSONResponse
 import hmac
 
-from promo_code_service import issue_promo_code, format_display_code
+from app.services.promo_code_service import issue_promo_code, format_display_code
 from app.pilot_dispatch import (
     ADMIN_DISPATCH_DISABLED,
     ADMIN_DISPATCH_ENABLED,
@@ -167,7 +172,6 @@ class AdminResetVisitsPayload(BaseModel):
     password: str
 
 
-
 class AdminPilotDocumentReviewIn(BaseModel):
     action: str
     note: Optional[str] = None
@@ -231,10 +235,16 @@ async def _cascade_delete_user_data(
 
     # Support conversations/messages can reference users.id via FK.
     convo_ids = (
-        await db.execute(
-            select(SupportConversation.id).where(SupportConversation.user_id == user_id)
+        (
+            await db.execute(
+                select(SupportConversation.id).where(
+                    SupportConversation.user_id == user_id
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if convo_ids:
         await db.execute(
             delete(SupportMessage).where(SupportMessage.conversation_id.in_(convo_ids))
@@ -245,10 +255,16 @@ async def _cascade_delete_user_data(
 
     # Pilot documents reference users.id via FK (non-nullable).
     pilot_docs = (
-        await db.execute(
-            select(PilotDocument.stored_filename).where(PilotDocument.pilot_id == user_id)
+        (
+            await db.execute(
+                select(PilotDocument.stored_filename).where(
+                    PilotDocument.pilot_id == user_id
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     stored_filenames.extend([name for name in pilot_docs if name])
     await db.execute(delete(PilotDocument).where(PilotDocument.pilot_id == user_id))
 
@@ -265,24 +281,38 @@ async def _cascade_delete_user_data(
     # Cleanup the user's errands and errand-owned children (not required for FK safety,
     # but keeps test account purges complete).
     errand_ids = (
-        await db.execute(select(Errand.id).where(Errand.user_id == user_id))
-    ).scalars().all()
+        (await db.execute(select(Errand.id).where(Errand.user_id == user_id)))
+        .scalars()
+        .all()
+    )
 
     if errand_ids:
         # Incidents for those errands.
         incident_ids = (
-            await db.execute(
-                select(IncidentReport.id).where(IncidentReport.errand_id.in_(errand_ids))
+            (
+                await db.execute(
+                    select(IncidentReport.id).where(
+                        IncidentReport.errand_id.in_(errand_ids)
+                    )
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if incident_ids:
             await db.execute(
-                delete(IncidentMessage).where(IncidentMessage.incident_id.in_(incident_ids))
+                delete(IncidentMessage).where(
+                    IncidentMessage.incident_id.in_(incident_ids)
+                )
             )
-            await db.execute(delete(IncidentReport).where(IncidentReport.id.in_(incident_ids)))
+            await db.execute(
+                delete(IncidentReport).where(IncidentReport.id.in_(incident_ids))
+            )
 
         # Pilot location entries for those errands.
-        await db.execute(delete(PilotLocation).where(PilotLocation.errand_id.in_(errand_ids)))
+        await db.execute(
+            delete(PilotLocation).where(PilotLocation.errand_id.in_(errand_ids))
+        )
 
         # Attachments + share links.
         attachment_rows = (
@@ -306,28 +336,40 @@ async def _cascade_delete_user_data(
                 )
             )
 
-        await db.execute(delete(ErrandEvent).where(ErrandEvent.errand_id.in_(errand_ids)))
+        await db.execute(
+            delete(ErrandEvent).where(ErrandEvent.errand_id.in_(errand_ids))
+        )
         await db.execute(
             delete(ErrandAttachment).where(ErrandAttachment.errand_id.in_(errand_ids))
         )
 
         # Voice call events/sessions (FK exists from events -> sessions).
         session_ids = (
-            await db.execute(
-                select(VoiceCallSession.id).where(VoiceCallSession.errand_id.in_(errand_ids))
+            (
+                await db.execute(
+                    select(VoiceCallSession.id).where(
+                        VoiceCallSession.errand_id.in_(errand_ids)
+                    )
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if session_ids:
             await db.execute(
                 delete(VoiceCallEvent).where(VoiceCallEvent.session_id.in_(session_ids))
             )
-            await db.execute(delete(VoiceCallSession).where(VoiceCallSession.id.in_(session_ids)))
+            await db.execute(
+                delete(VoiceCallSession).where(VoiceCallSession.id.in_(session_ids))
+            )
 
         await db.execute(delete(Errand).where(Errand.id.in_(errand_ids)))
 
     # Attachment share links created by this user (no FK, but good hygiene).
     await db.execute(
-        delete(AttachmentShareLink).where(AttachmentShareLink.created_by_user_id == user_id)
+        delete(AttachmentShareLink).where(
+            AttachmentShareLink.created_by_user_id == user_id
+        )
     )
 
     return {"stored_filenames": list({name for name in stored_filenames if name})}
@@ -447,7 +489,9 @@ async def list_promo_codes(
     db: AsyncSession = Depends(get_db),
 ):
     """List promo codes (admin-only)."""
-    admin = await _require_admin(db, authorization or request.headers.get("authorization"))
+    admin = await _require_admin(
+        db, authorization or request.headers.get("authorization")
+    )
 
     q = select(PromoCode, User).outerjoin(User, User.id == PromoCode.user_id)
     if user_id is not None:
@@ -472,7 +516,9 @@ async def generate_promo_code(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate a promo code (admin-only)."""
-    admin = await _require_admin(db, authorization or request.headers.get("authorization"))
+    admin = await _require_admin(
+        db, authorization or request.headers.get("authorization")
+    )
 
     user_id_value = payload.user_id
     if user_id_value is not None:
@@ -498,7 +544,6 @@ async def generate_promo_code(
         f"[admin] user_id={admin.id} action=generate_promo_code promo_id={promo.id} user_id={promo.user_id} percent_off={promo.percent_off}"
     )
     return _promo_to_admin_out(promo, target)
-
 
 
 @router.get("/users", response_model=list[AdminUserOut])
@@ -602,15 +647,15 @@ async def delete_user(
         print(
             f"[admin] user_id={admin.id} action=delete_user_failed target_user_id={user_id} reason=exception {str(e)}"
         )
-        raise HTTPException(status_code=500, detail=f"Failed to delete user: {str(e)}") from e
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete user: {str(e)}"
+        ) from e
 
     # Best-effort object storage cleanup (S3 only).
     for stored_name in cascade_result.get("stored_filenames", []):
         delete_object_if_exists(stored_name)
 
-    print(
-        f"[admin] user_id={admin.id} action=delete_user target_user_id={user_id}"
-    )
+    print(f"[admin] user_id={admin.id} action=delete_user target_user_id={user_id}")
 
     return AdminDeleteUserOut(deleted=True, user_id=user_id, email=target_email)
 
@@ -796,14 +841,15 @@ async def list_errands(
             pilot_id=getattr(errand, "pilot_id", None),
             assigned_at=getattr(errand, "assigned_at", None),
             user_id=errand.user_id,
-            customer_name=f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email,
+            customer_name=f"{user.first_name or ''} {user.last_name or ''}".strip()
+            or user.email,
             customer_email=user.email,
             customer_phone=user.phone,
             created_at=errand.created_at,
             confirmation_sent_at=getattr(errand, "confirmation_sent_at", None),
-			amount=getattr(errand, "amount", None),
-			distance_km=getattr(errand, "distance_km", None),
-			sensitivity=getattr(errand, "sensitivity", None),
+            amount=getattr(errand, "amount", None),
+            distance_km=getattr(errand, "distance_km", None),
+            sensitivity=getattr(errand, "sensitivity", None),
         )
         for errand, user in rows
     ]
@@ -839,21 +885,18 @@ async def list_errand_chats(
     )
 
     # Pick last message per errand via window function.
-    ranked_last = (
-        select(
-            ErrandMessage.errand_id.label("errand_id"),
-            ErrandMessage.message.label("message"),
-            ErrandMessage.sender_id.label("sender_id"),
-            ErrandMessage.created_at.label("created_at"),
-            func.row_number()
-            .over(
-                partition_by=ErrandMessage.errand_id,
-                order_by=(ErrandMessage.created_at.desc(), ErrandMessage.id.desc()),
-            )
-            .label("rn"),
+    ranked_last = select(
+        ErrandMessage.errand_id.label("errand_id"),
+        ErrandMessage.message.label("message"),
+        ErrandMessage.sender_id.label("sender_id"),
+        ErrandMessage.created_at.label("created_at"),
+        func.row_number()
+        .over(
+            partition_by=ErrandMessage.errand_id,
+            order_by=(ErrandMessage.created_at.desc(), ErrandMessage.id.desc()),
         )
-        .subquery()
-    )
+        .label("rn"),
+    ).subquery()
     last_subq = (
         select(
             ranked_last.c.errand_id,
@@ -910,11 +953,23 @@ async def list_errand_chats(
     )
 
     out: list[AdminErrandChatOut] = []
-    for errand, cust, pil, message_count, last_message_at, last_message, last_sender_id in rows:
-        cust_name = f"{cust.first_name or ''} {cust.last_name or ''}".strip() or cust.email
+    for (
+        errand,
+        cust,
+        pil,
+        message_count,
+        last_message_at,
+        last_message,
+        last_sender_id,
+    ) in rows:
+        cust_name = (
+            f"{cust.first_name or ''} {cust.last_name or ''}".strip() or cust.email
+        )
         pil_name = None
         if pil:
-            pil_name = f"{pil.first_name or ''} {pil.last_name or ''}".strip() or pil.email
+            pil_name = (
+                f"{pil.first_name or ''} {pil.last_name or ''}".strip() or pil.email
+            )
 
         out.append(
             AdminErrandChatOut(
@@ -933,7 +988,9 @@ async def list_errand_chats(
                 message_count=int(message_count or 0),
                 last_message_at=last_message_at,
                 last_message=last_message,
-                last_sender_id=int(last_sender_id) if last_sender_id is not None else None,
+                last_sender_id=(
+                    int(last_sender_id) if last_sender_id is not None else None
+                ),
             )
         )
 
@@ -976,7 +1033,8 @@ async def get_errand_detail(
         pilot_id=getattr(errand, "pilot_id", None),
         assigned_at=getattr(errand, "assigned_at", None),
         user_id=errand.user_id,
-        customer_name=f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email,
+        customer_name=f"{user.first_name or ''} {user.last_name or ''}".strip()
+        or user.email,
         customer_email=user.email,
         customer_phone=user.phone,
         created_at=errand.created_at,
@@ -1034,7 +1092,9 @@ async def list_attachments(
                 content_type=attachment.content_type,
                 size_bytes=int(attachment.size_bytes or 0),
                 label=getattr(attachment, "label", None),
-                review_status=str(getattr(attachment, "review_status", "pending") or "pending"),
+                review_status=str(
+                    getattr(attachment, "review_status", "pending") or "pending"
+                ),
                 review_note=getattr(attachment, "review_note", None),
                 reviewed_at=getattr(attachment, "reviewed_at", None),
                 reviewed_by_user_id=getattr(attachment, "reviewed_by_user_id", None),
@@ -1057,7 +1117,9 @@ async def review_attachment(
 
     action = (payload.action or "").strip().lower()
     if action not in {"approve", "reject"}:
-        raise HTTPException(status_code=400, detail="Invalid action; expected 'approve' or 'reject'")
+        raise HTTPException(
+            status_code=400, detail="Invalid action; expected 'approve' or 'reject'"
+        )
 
     attachment = await db.get(ErrandAttachment, attachment_id)
     if not attachment:
@@ -1077,7 +1139,11 @@ async def review_attachment(
     if errand:
         note_parts = [
             f"Attachment {action}d",
-            f"file={attachment.original_filename}" if attachment.original_filename else None,
+            (
+                f"file={attachment.original_filename}"
+                if attachment.original_filename
+                else None
+            ),
             f"note={attachment.review_note}" if attachment.review_note else None,
         ]
         db.add(
@@ -1122,7 +1188,9 @@ async def review_attachment(
                 db.add(link)
                 await db.commit()
 
-                public_base = (os.getenv("PUBLIC_API_URL") or "http://localhost:8001").rstrip("/")
+                public_base = (
+                    os.getenv("PUBLIC_API_URL") or "http://localhost:8001"
+                ).rstrip("/")
                 subject = f"Errand receipt approved: {attachment.original_filename}"
                 body = (
                     "Your errand receipt has been verified by our admin team.\n\n"
@@ -1150,7 +1218,9 @@ async def review_attachment(
         "id": attachment.id,
         "reviewStatus": attachment.review_status,
         "reviewNote": attachment.review_note,
-        "reviewedAt": attachment.reviewed_at.isoformat() if attachment.reviewed_at else None,
+        "reviewedAt": (
+            attachment.reviewed_at.isoformat() if attachment.reviewed_at else None
+        ),
         "reviewedByUserId": attachment.reviewed_by_user_id,
     }
 
@@ -1176,11 +1246,11 @@ async def update_errand_status(
         "accepted",
         "cancelled",
     ]
-    
+
     if new_status not in valid_statuses:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid status. Expected one of: {', '.join(valid_statuses)}"
+            detail=f"Invalid status. Expected one of: {', '.join(valid_statuses)}",
         )
 
     errand = await db.get(Errand, errand_id)
@@ -1195,7 +1265,7 @@ async def update_errand_status(
             errand.assigned_to = admin.id
         if not errand.assigned_at:
             errand.assigned_at = datetime.now(timezone.utc)
-    
+
     # Update timestamp
     errand.updated_at = datetime.now(timezone.utc)
 
@@ -1228,7 +1298,11 @@ async def update_errand_status(
         "id": errand.id,
         "referenceNumber": errand.reference_number,
         "status": errand.status,
-        "updatedAt": errand.updated_at.isoformat() if hasattr(errand, 'updated_at') and errand.updated_at else None,
+        "updatedAt": (
+            errand.updated_at.isoformat()
+            if hasattr(errand, "updated_at") and errand.updated_at
+            else None
+        ),
     }
 
 
@@ -1248,7 +1322,9 @@ async def delete_errand(
 
     status_key = (errand.status or "").strip().lower()
     if status_key == "completed":
-        raise HTTPException(status_code=400, detail="Completed errands cannot be deleted")
+        raise HTTPException(
+            status_code=400, detail="Completed errands cannot be deleted"
+        )
 
     # Deleting active errands is risky and can break FK constraints while a pilot/client is still interacting.
     # Keep deletes to only truly-open states.
@@ -1263,25 +1339,45 @@ async def delete_errand(
         )
 
     attachments = (
-        await db.execute(select(ErrandAttachment).where(ErrandAttachment.errand_id == errand_id))
-    ).scalars().all()
+        (
+            await db.execute(
+                select(ErrandAttachment).where(ErrandAttachment.errand_id == errand_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     attachment_ids = [attachment.id for attachment in attachments]
     for attachment in attachments:
         delete_object_if_exists(attachment.stored_filename)
 
     if attachment_ids:
         await db.execute(
-            delete(AttachmentShareLink).where(AttachmentShareLink.attachment_id.in_(attachment_ids))
+            delete(AttachmentShareLink).where(
+                AttachmentShareLink.attachment_id.in_(attachment_ids)
+            )
         )
-    await db.execute(delete(ErrandAttachment).where(ErrandAttachment.errand_id == errand_id))
+    await db.execute(
+        delete(ErrandAttachment).where(ErrandAttachment.errand_id == errand_id)
+    )
 
     incident_reports = (
-        await db.execute(select(IncidentReport).where(IncidentReport.errand_id == errand_id))
-    ).scalars().all()
+        (
+            await db.execute(
+                select(IncidentReport).where(IncidentReport.errand_id == errand_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     incident_ids = [incident.id for incident in incident_reports]
     if incident_ids:
-        await db.execute(delete(IncidentMessage).where(IncidentMessage.incident_id.in_(incident_ids)))
-    await db.execute(delete(IncidentReport).where(IncidentReport.errand_id == errand_id))
+        await db.execute(
+            delete(IncidentMessage).where(IncidentMessage.incident_id.in_(incident_ids))
+        )
+    await db.execute(
+        delete(IncidentReport).where(IncidentReport.errand_id == errand_id)
+    )
 
     await db.execute(delete(ErrandMessage).where(ErrandMessage.errand_id == errand_id))
     await db.execute(delete(ErrandEvent).where(ErrandEvent.errand_id == errand_id))
@@ -1593,13 +1689,16 @@ async def list_pilot_documents(
     result = await db.execute(query)
     rows = result.all()
 
-    print(f"[admin] user_id={admin.id} action=list_pilot_documents count={len(rows)} status_filter={status}")
+    print(
+        f"[admin] user_id={admin.id} action=list_pilot_documents count={len(rows)} status_filter={status}"
+    )
 
     return [
         {
             "id": doc.id,
             "pilot_id": doc.pilot_id,
-            "pilot_name": f"{pilot.first_name or ''} {pilot.last_name or ''}".strip() or pilot.email,
+            "pilot_name": f"{pilot.first_name or ''} {pilot.last_name or ''}".strip()
+            or pilot.email,
             "pilot_email": pilot.email,
             "document_type": doc.document_type,
             "original_filename": doc.original_filename,
@@ -1626,7 +1725,9 @@ async def download_pilot_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    print(f"[admin] user_id={admin.id} action=download_pilot_document document_id={document_id}")
+    print(
+        f"[admin] user_id={admin.id} action=download_pilot_document document_id={document_id}"
+    )
 
     cfg = get_storage_config()
     if cfg.driver == "s3":
@@ -1666,7 +1767,9 @@ async def review_pilot_document(
 
     action = (payload.action or "").strip().lower()
     if action not in {"approve", "reject"}:
-        raise HTTPException(status_code=400, detail="Invalid action; use approve or reject")
+        raise HTTPException(
+            status_code=400, detail="Invalid action; use approve or reject"
+        )
 
     document.status = "approved" if action == "approve" else "rejected"
     document.review_note = payload.note
@@ -1704,7 +1807,9 @@ async def list_pilot_employment_applications(
 
     admin = await _require_admin(db, authorization)
 
-    query = select(PilotEmploymentApplication).order_by(PilotEmploymentApplication.created_at.desc())
+    query = select(PilotEmploymentApplication).order_by(
+        PilotEmploymentApplication.created_at.desc()
+    )
     if status:
         query = query.where(PilotEmploymentApplication.status == status)
 
@@ -1720,7 +1825,9 @@ async def list_pilot_employment_applications(
             .order_by(PilotEmploymentAttachment.created_at.desc())
         )
         for attachment in attachment_res.scalars().all():
-            attachments_by_app.setdefault(attachment.application_id, []).append(attachment)
+            attachments_by_app.setdefault(attachment.application_id, []).append(
+                attachment
+            )
 
     print(
         f"[admin] user_id={admin.id} action=list_pilot_employment_applications count={len(applications)} status_filter={status}"
@@ -1747,7 +1854,9 @@ async def list_pilot_employment_applications(
                     "content_type": att.content_type,
                     "size_bytes": att.size_bytes,
                     "label": att.label,
-                    "created_at": att.created_at.isoformat() if att.created_at else None,
+                    "created_at": (
+                        att.created_at.isoformat() if att.created_at else None
+                    ),
                 }
                 for att in attachments_by_app.get(app.id, [])
             ],
@@ -1810,18 +1919,24 @@ async def list_availability_events(
         select(ErrandEvent, Errand, User)
         .join(Errand, Errand.id == ErrandEvent.errand_id)
         .join(User, User.id == Errand.user_id)
-        .where(ErrandEvent.event_type.in_([
-            "pilot_availability_request",
-            "pilot_availability_yes",
-            "pilot_availability_no",
-            "pilot_reminder",
-        ]))
+        .where(
+            ErrandEvent.event_type.in_(
+                [
+                    "pilot_availability_request",
+                    "pilot_availability_yes",
+                    "pilot_availability_no",
+                    "pilot_reminder",
+                ]
+            )
+        )
         .order_by(ErrandEvent.created_at.desc())
         .limit(limit_value)
     )
 
     rows = res.all()
-    print(f"[admin] user_id={admin.id} action=list_availability_events count={len(rows)}")
+    print(
+        f"[admin] user_id={admin.id} action=list_availability_events count={len(rows)}"
+    )
 
     payload = []
     for event, errand, customer in rows:
@@ -1829,14 +1944,17 @@ async def list_availability_events(
             {
                 "id": event.id,
                 "event_type": event.event_type,
-                "created_at": event.created_at.isoformat() if event.created_at else None,
+                "created_at": (
+                    event.created_at.isoformat() if event.created_at else None
+                ),
                 "note": event.note,
                 "errand_id": errand.id,
                 "errand_reference": errand.reference_number,
                 "errand_title": errand.title,
                 "errand_status": errand.status,
                 "pilot_id": errand.pilot_id,
-                "customer_name": f"{customer.first_name or ''} {customer.last_name or ''}".strip() or customer.email,
+                "customer_name": f"{customer.first_name or ''} {customer.last_name or ''}".strip()
+                or customer.email,
                 "customer_email": customer.email,
             }
         )
@@ -1897,15 +2015,25 @@ async def list_issues(
                 issue_reason=getattr(e, "issue_reason", None),
                 issue_notes=getattr(e, "issue_notes", None),
                 issue_reported_at=getattr(e, "issue_reported_at", None),
-                issue_preferred_resolution=getattr(e, "issue_preferred_resolution", None),
+                issue_preferred_resolution=getattr(
+                    e, "issue_preferred_resolution", None
+                ),
                 issue_status=getattr(e, "issue_status", None),
                 issue_resolved_at=getattr(e, "issue_resolved_at", None),
                 issue_resolution_notes=getattr(e, "issue_resolution_notes", None),
-                issue_evidence_attachment_ids=getattr(e, "issue_evidence_attachment_ids", None),
-                ml_priority=int(ml.get("priority")) if isinstance(ml, dict) and ml.get("priority") is not None else None,
+                issue_evidence_attachment_ids=getattr(
+                    e, "issue_evidence_attachment_ids", None
+                ),
+                ml_priority=(
+                    int(ml.get("priority"))
+                    if isinstance(ml, dict) and ml.get("priority") is not None
+                    else None
+                ),
                 ml_tags=ml.get("tags") if isinstance(ml, dict) else None,
                 ml_reasons=ml.get("reasons") if isinstance(ml, dict) else None,
-                ml_policy_version=ml.get("policyVersion") if isinstance(ml, dict) else None,
+                ml_policy_version=(
+                    ml.get("policyVersion") if isinstance(ml, dict) else None
+                ),
             )
         )
     return out
@@ -1924,7 +2052,10 @@ async def resolve_issue(
 
     action = (payload.action or "").strip().lower()
     if action not in {"resolve", "reject", "reopen"}:
-        raise HTTPException(status_code=400, detail="Invalid action; expected 'resolve', 'reject', or 'reopen'")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid action; expected 'resolve', 'reject', or 'reopen'",
+        )
 
     errand = await db.get(Errand, errand_id)
     if not errand:
@@ -1941,7 +2072,9 @@ async def resolve_issue(
         setattr(errand, "issue_status", "open")
         setattr(errand, "issue_resolved_at", None)
     else:
-        setattr(errand, "issue_status", "resolved" if action == "resolve" else "rejected")
+        setattr(
+            errand, "issue_status", "resolved" if action == "resolve" else "rejected"
+        )
         setattr(errand, "issue_resolved_at", datetime.utcnow())
 
     if notes is not None:
@@ -1957,7 +2090,11 @@ async def resolve_issue(
     return {
         "errandId": errand.id,
         "issueStatus": getattr(errand, "issue_status", None),
-        "issueResolvedAt": getattr(errand, "issue_resolved_at", None).isoformat() if getattr(errand, "issue_resolved_at", None) else None,
+        "issueResolvedAt": (
+            getattr(errand, "issue_resolved_at", None).isoformat()
+            if getattr(errand, "issue_resolved_at", None)
+            else None
+        ),
         "issueResolutionNotes": getattr(errand, "issue_resolution_notes", None),
     }
 
@@ -1966,8 +2103,10 @@ async def resolve_issue(
 # CUSTOMER MANAGEMENT ENDPOINTS
 # ============================================================================
 
+
 class CustomerDetailOut(BaseModel):
     """Detailed customer profile"""
+
     id: int
     email: str
     first_name: Optional[str]
@@ -1995,12 +2134,18 @@ async def get_customer_statistics(
     admin = await _require_admin(db, authorization)
 
     total = await db.scalar(select(func.count()).select_from(User)) or 0
-    verified = await db.scalar(
-        select(func.count()).select_from(User).where(User.is_email_verified)
-    ) or 0
-    countries_count = await db.scalar(
-        select(func.count(distinct(User.country))).where(User.country.is_not(None))
-    ) or 0
+    verified = (
+        await db.scalar(
+            select(func.count()).select_from(User).where(User.is_email_verified)
+        )
+        or 0
+    )
+    countries_count = (
+        await db.scalar(
+            select(func.count(distinct(User.country))).where(User.country.is_not(None))
+        )
+        or 0
+    )
     countries_result = await db.execute(
         select(User.country)
         .where(User.country.is_not(None))
@@ -2009,16 +2154,18 @@ async def get_customer_statistics(
         .limit(10)
     )
     countries = [c[0] for c in countries_result.all() if c[0]]
-    
-    print(f"[admin] user_id={admin.id} action=get_customer_statistics total_customers={total} verified={verified}")
-    
+
+    print(
+        f"[admin] user_id={admin.id} action=get_customer_statistics total_customers={total} verified={verified}"
+    )
+
     return {
         "total_customers": total,
         "verified_customers": verified,
         "unverified_customers": total - verified,
         "verification_rate": f"{(verified/total*100):.1f}%" if total > 0 else "0%",
         "countries_represented": int(countries_count),
-        "top_countries": countries[:10] if countries else []
+        "top_countries": countries[:10] if countries else [],
     }
 
 
@@ -2047,7 +2194,9 @@ async def list_voice_calls(
             "id": session.id,
             "errand_id": session.errand_id,
             "status": session.status,
-            "created_at": session.created_at.isoformat() if session.created_at else None,
+            "created_at": (
+                session.created_at.isoformat() if session.created_at else None
+            ),
             "initiator_user_id": session.initiator_user_id,
             "pilot_user_id": session.pilot_user_id,
             "customer_user_id": session.customer_user_id,
@@ -2078,7 +2227,9 @@ async def list_voice_call_events(
     )
     events = result.scalars().all()
 
-    print(f"[admin] user_id={admin.id} action=list_voice_call_events session_id={session_id} count={len(events)}")
+    print(
+        f"[admin] user_id={admin.id} action=list_voice_call_events session_id={session_id} count={len(events)}"
+    )
 
     payload = []
     for event in events:
@@ -2092,7 +2243,9 @@ async def list_voice_call_events(
                 "id": event.id,
                 "event_type": event.event_type,
                 "payload": parsed,
-                "created_at": event.created_at.isoformat() if event.created_at else None,
+                "created_at": (
+                    event.created_at.isoformat() if event.created_at else None
+                ),
                 "entry_hash": event.entry_hash,
                 "previous_hash": event.previous_hash,
             }
@@ -2129,7 +2282,9 @@ async def download_voice_transcript(
             payload = event.payload_json
         transcript_events.append(
             {
-                "created_at": event.created_at.isoformat() if event.created_at else None,
+                "created_at": (
+                    event.created_at.isoformat() if event.created_at else None
+                ),
                 "payload": payload,
                 "entry_hash": event.entry_hash,
                 "previous_hash": event.previous_hash,
@@ -2137,7 +2292,9 @@ async def download_voice_transcript(
         )
 
     filename = f"call-transcript-session-{session_id}.json"
-    print(f"[admin] user_id={admin.id} action=download_transcript session_id={session_id}")
+    print(
+        f"[admin] user_id={admin.id} action=download_transcript session_id={session_id}"
+    )
     return JSONResponse(
         content={
             "session_id": session_id,
@@ -2157,22 +2314,35 @@ async def get_admin_metrics_overview(
     admin = await _require_admin(db, authorization)
 
     total_users = await db.scalar(select(func.count()).select_from(User)) or 0
-    verified_users = await db.scalar(
-        select(func.count()).select_from(User).where(User.is_email_verified)
-    ) or 0
+    verified_users = (
+        await db.scalar(
+            select(func.count()).select_from(User).where(User.is_email_verified)
+        )
+        or 0
+    )
     total_errands = await db.scalar(select(func.count()).select_from(Errand)) or 0
-    pending_issues = await db.scalar(
-        select(func.count()).select_from(Errand).where(Errand.issue_status == "open")
-    ) or 0
+    pending_issues = (
+        await db.scalar(
+            select(func.count())
+            .select_from(Errand)
+            .where(Errand.issue_status == "open")
+        )
+        or 0
+    )
 
     now = datetime.now(timezone.utc)
     since = now - timedelta(hours=24)
-    visits_total = await db.scalar(select(func.count()).select_from(AnalyticsVisit)) or 0
-    visits_last_24h = await db.scalar(
-        select(func.count())
-        .select_from(AnalyticsVisit)
-        .where(AnalyticsVisit.created_at >= since)
-    ) or 0
+    visits_total = (
+        await db.scalar(select(func.count()).select_from(AnalyticsVisit)) or 0
+    )
+    visits_last_24h = (
+        await db.scalar(
+            select(func.count())
+            .select_from(AnalyticsVisit)
+            .where(AnalyticsVisit.created_at >= since)
+        )
+        or 0
+    )
 
     country_trim = func.trim(AnalyticsVisit.country)
     country_norm = func.upper(country_trim)
@@ -2251,7 +2421,9 @@ async def get_admin_metrics_overview(
                 "city": k[2] or None,
                 "count": int(v),
             }
-            for k, v in sorted(location_counts.items(), key=lambda item: item[1], reverse=True)
+            for k, v in sorted(
+                location_counts.items(), key=lambda item: item[1], reverse=True
+            )
         ]
 
         if unknown_only_total:
@@ -2343,16 +2515,19 @@ async def get_admin_metrics_overview(
         .limit(25)
     )
     visits_by_city = [
-        {"city": row[0], "count": int(row[1] or 0)}
-        for row in city_rows.all()
-        if row[0]
+        {"city": row[0], "count": int(row[1] or 0)} for row in city_rows.all() if row[0]
     ][:10]
 
     # Best-effort location breakdown (country/region/city). This is only as accurate
     # as the upstream geo headers (CloudFront/CF/etc). If those are absent, the
     # client-sent country hint still allows country-level aggregation.
     location_rows = await db.execute(
-        select(country_norm.label("country"), region_trim.label("region"), city_trim.label("city"), func.count())
+        select(
+            country_norm.label("country"),
+            region_trim.label("region"),
+            city_trim.label("city"),
+            func.count(),
+        )
         .where(
             or_(
                 AnalyticsVisit.country.is_not(None),
@@ -2367,7 +2542,12 @@ async def get_admin_metrics_overview(
     visits_by_location = build_location_rollup(location_rows.all())
 
     location_rows_last_24h = await db.execute(
-        select(country_norm.label("country"), region_trim.label("region"), city_trim.label("city"), func.count())
+        select(
+            country_norm.label("country"),
+            region_trim.label("region"),
+            city_trim.label("city"),
+            func.count(),
+        )
         .where(AnalyticsVisit.created_at >= since)
         .where(
             or_(
@@ -2396,7 +2576,14 @@ async def get_admin_metrics_overview(
         .limit(100)
     )
     visits_recent_24h = []
-    for page, source, raw_country, raw_region, raw_city, created_at in recent_visit_rows.all():
+    for (
+        page,
+        source,
+        raw_country,
+        raw_region,
+        raw_city,
+        created_at,
+    ) in recent_visit_rows.all():
         visits_recent_24h.append(
             {
                 "page": page,
@@ -2450,7 +2637,7 @@ async def get_admin_metrics_overview(
         "visits_by_city": visits_by_city,
         "visits_by_location": visits_by_location,
         "visits_last_24h_by_location": visits_last_24h_by_location,
-		"visits_recent_24h": visits_recent_24h,
+        "visits_recent_24h": visits_recent_24h,
         "visits_by_source": visits_by_source,
         "errand_funnel": funnel,
         "last_updated": now.isoformat(),
@@ -2518,17 +2705,19 @@ async def get_customer_details(
 ):
     """Get detailed profile of a specific customer"""
     admin = await _require_admin(db, authorization)
-    
+
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise HTTPException(status_code=404, detail="Customer not found")
-    
+
     account_age = (datetime.utcnow() - user.created_at).days if user.created_at else 0
-    
-    print(f"[admin] user_id={admin.id} action=get_customer_details target_user_id={user_id}")
-    
+
+    print(
+        f"[admin] user_id={admin.id} action=get_customer_details target_user_id={user_id}"
+    )
+
     return CustomerDetailOut(
         id=user.id,
         email=user.email,
@@ -2545,7 +2734,7 @@ async def get_customer_details(
         id_verification_status=user.id_verification_status,
         address_verification_status=user.address_verification_status,
         created_at=user.created_at.isoformat() if user.created_at else "",
-        account_age_days=account_age
+        account_age_days=account_age,
     )
 
 
@@ -2560,24 +2749,26 @@ async def list_all_customers(
 ):
     """List customers with optional filters"""
     admin = await _require_admin(db, authorization)
-    
+
     query = select(User)
-    
+
     # Apply filters
     if verified_only:
         query = query.where(User.is_email_verified)
-    
+
     if country:
         query = query.where(User.country == country)
-    
+
     # Order by newest first
     query = query.order_by(User.created_at.desc()).offset(offset).limit(limit)
-    
+
     result = await db.execute(query)
     users = result.scalars().all()
-    
-    print(f"[admin] user_id={admin.id} action=list_customers count={len(users)} verified_only={verified_only} country={country}")
-    
+
+    print(
+        f"[admin] user_id={admin.id} action=list_customers count={len(users)} verified_only={verified_only} country={country}"
+    )
+
     return [
         {
             "id": u.id,
@@ -2589,7 +2780,9 @@ async def list_all_customers(
             "country": u.country,
             "is_email_verified": bool(u.is_email_verified),
             "is_pilot": bool(getattr(u, "is_pilot", False)),
-            "rating": float(u.rating) if getattr(u, "rating", None) is not None else None,
+            "rating": (
+                float(u.rating) if getattr(u, "rating", None) is not None else None
+            ),
             "profile_image_url": u.profile_image_url,
             "created_at": u.created_at.isoformat() if u.created_at else "",
             **serialize_pilot_dispatch_state(u),
@@ -2606,16 +2799,16 @@ async def get_customers_by_country(
 ):
     """Get all customers from a specific country"""
     admin = await _require_admin(db, authorization)
-    
+
     result = await db.execute(
-        select(User)
-        .where(User.country == country)
-        .order_by(User.city)
+        select(User).where(User.country == country).order_by(User.city)
     )
     users = result.scalars().all()
-    
-    print(f"[admin] user_id={admin.id} action=get_customers_by_country country={country} count={len(users)}")
-    
+
+    print(
+        f"[admin] user_id={admin.id} action=get_customers_by_country country={country} count={len(users)}"
+    )
+
     return {
         "country": country,
         "total_in_country": len(users),
@@ -2627,10 +2820,10 @@ async def get_customers_by_country(
                 "city": u.city,
                 "state": u.state,
                 "postal_code": u.postal_code,
-                "verified": bool(u.is_email_verified)
+                "verified": bool(u.is_email_verified),
             }
             for u in users
-        ]
+        ],
     }
 
 
@@ -2641,16 +2834,16 @@ async def get_unverified_customers(
 ):
     """Get list of unverified customers (for follow-up)"""
     admin = await _require_admin(db, authorization)
-    
+
     result = await db.execute(
-        select(User)
-        .where(~User.is_email_verified)
-        .order_by(User.created_at.desc())
+        select(User).where(~User.is_email_verified).order_by(User.created_at.desc())
     )
     users = result.scalars().all()
-    
-    print(f"[admin] user_id={admin.id} action=get_unverified_customers count={len(users)}")
-    
+
+    print(
+        f"[admin] user_id={admin.id} action=get_unverified_customers count={len(users)}"
+    )
+
     return {
         "unverified_count": len(users),
         "customers": [
@@ -2660,10 +2853,14 @@ async def get_unverified_customers(
                 "name": f"{u.first_name or ''} {u.last_name or ''}".strip(),
                 "otp_attempts": u.email_otp_attempts,
                 "created_at": u.created_at.isoformat() if u.created_at else "",
-                "days_since_signup": (datetime.now(timezone.utc) - u.created_at).days if u.created_at else 0
+                "days_since_signup": (
+                    (datetime.now(timezone.utc) - u.created_at).days
+                    if u.created_at
+                    else 0
+                ),
             }
             for u in users
-        ]
+        ],
     }
 
 
@@ -2684,7 +2881,9 @@ async def purge_unverified_customers(
         await db.execute(delete(User).where(~User.is_email_verified))
         await db.commit()
 
-    print(f"[admin] user_id={admin.id} action=purge_unverified_customers count={deleted_count}")
+    print(
+        f"[admin] user_id={admin.id} action=purge_unverified_customers count={deleted_count}"
+    )
 
     return {
         "deleted_count": deleted_count,

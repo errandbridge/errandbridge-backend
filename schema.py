@@ -19,9 +19,9 @@ from auth_user_query import (
     is_phone_identifier,
     normalize_phone_for_storage,
 )
-from emailer import send_email
-from sms_sender import send_sms
-from notification_utils import notify_customer_status, notify_pilot_status
+from app.services.emailer import send_email
+from app.services.sms_sender import send_sms
+from app.utils.notification_utils import notify_customer_status, notify_pilot_status
 from models import (
     Errand as ErrandModel,
     User,
@@ -58,7 +58,9 @@ async def _get_auth_user_by_phone(session: AsyncSession, phone: str) -> User | N
     return result.scalars().first()
 
 
-async def _get_auth_user_by_identifier(session: AsyncSession, identifier: str) -> User | None:
+async def _get_auth_user_by_identifier(
+    session: AsyncSession, identifier: str
+) -> User | None:
     raw = (identifier or "").strip()
     if not raw:
         return None
@@ -275,7 +277,9 @@ def build_client_lifecycle_snapshot(
         "isReturningClient": len(errands) > 0,
         "completedErrandCount": len(completed_errands),
         "pendingReviewErrandIds": [int(errand.id) for errand in pending_review_errands],
-        "lastCompletedErrandId": int(completed_errands[0].id) if completed_errands else None,
+        "lastCompletedErrandId": (
+            int(completed_errands[0].id) if completed_errands else None
+        ),
         "hasSubmittedAnyReview": submitted_review_count > 0,
         "hasPendingReview": bool(pending_review_errands),
         "referralCode": referral_code,
@@ -284,7 +288,9 @@ def build_client_lifecycle_snapshot(
         "hasUnusedReferralReward": bool(unused_referral_promos),
         "referralRewardExpiresAt": _serialize_datetime(latest_unused_expiry),
         "referralCampaignEndsAt": _serialize_datetime(REFERRAL_CAMPAIGN_END),
-        "hasReferralShareAvailable": bool(referral_share_link and submitted_review_count > 0),
+        "hasReferralShareAvailable": bool(
+            referral_share_link and submitted_review_count > 0
+        ),
     }
 
 
@@ -343,10 +349,17 @@ def build_assigned_pilot_trust_snapshot(
         except (TypeError, ValueError):
             average_rating = 4.8
 
-    verification_status = str(
-        getattr(pilot, "id_verification_status", "") or "",
-    ).strip().lower()
-    if getattr(pilot, "is_email_verified", False) and verification_status in {"verified", "approved"}:
+    verification_status = (
+        str(
+            getattr(pilot, "id_verification_status", "") or "",
+        )
+        .strip()
+        .lower()
+    )
+    if getattr(pilot, "is_email_verified", False) and verification_status in {
+        "verified",
+        "approved",
+    }:
         verification_label = "Identity verified"
     elif getattr(pilot, "is_email_verified", False):
         verification_label = "Email verified"
@@ -416,41 +429,54 @@ class AssignedPilotTrust:
     profileImageUrl: Optional[str]
     recentReviews: list[AssignedPilotTrustReview]
 
+
 @strawberry.type
 class Errand:
     @strawberry.field
     async def history(self, info: Info) -> list[ErrandEventType]:
         from models import ErrandEvent
+
         session: AsyncSession = info.context["db"]
         result = await session.execute(
-            select(ErrandEvent).where(ErrandEvent.errand_id == self.id).order_by(ErrandEvent.created_at.asc())
+            select(ErrandEvent)
+            .where(ErrandEvent.errand_id == self.id)
+            .order_by(ErrandEvent.created_at.asc())
         )
         rows = result.scalars().all()
-        return [ErrandEventType(
-            id=e.id,
-            eventType=e.event_type,
-            oldStatus=e.old_status,
-            newStatus=e.new_status,
-            note=e.note,
-            createdAt=e.created_at,
-            userId=e.user_id
-        ) for e in rows]
-    
+        return [
+            ErrandEventType(
+                id=e.id,
+                eventType=e.event_type,
+                oldStatus=e.old_status,
+                newStatus=e.new_status,
+                note=e.note,
+                createdAt=e.created_at,
+                userId=e.user_id,
+            )
+            for e in rows
+        ]
+
     @strawberry.field
     async def attachments(self, info: Info) -> list[AttachmentType]:
         from models import ErrandAttachment
+
         session: AsyncSession = info.context["db"]
         result = await session.execute(
-            select(ErrandAttachment).where(ErrandAttachment.errand_id == self.id).order_by(ErrandAttachment.created_at.asc())
+            select(ErrandAttachment)
+            .where(ErrandAttachment.errand_id == self.id)
+            .order_by(ErrandAttachment.created_at.asc())
         )
         rows = result.scalars().all()
-        return [AttachmentType(
-            id=a.id,
-            filename=a.original_filename,
-            contentType=a.content_type,
-            sizeBytes=a.size_bytes,
-            createdAt=a.created_at
-        ) for a in rows]
+        return [
+            AttachmentType(
+                id=a.id,
+                filename=a.original_filename,
+                contentType=a.content_type,
+                sizeBytes=a.size_bytes,
+                createdAt=a.created_at,
+            )
+            for a in rows
+        ]
 
     @strawberry.field
     async def assignedPilotTrust(self, info: Info) -> Optional[AssignedPilotTrust]:
@@ -516,7 +542,7 @@ class Errand:
                 for review in snapshot["recentReviews"]
             ],
         )
-    
+
     id: int
     referenceNumber: str
     title: str
@@ -545,17 +571,17 @@ class Errand:
     issueEvidenceAttachmentIds: Optional[str]
     created_at: datetime
     userId: int
-    
+
     # Pickup time slot
     pickupTimeSlotStart: Optional[datetime]
     pickupTimeSlotEnd: Optional[datetime]
     pickupTimeSlotDate: Optional[str]
-    
+
     # Assignment fields
     assignedTo: Optional[int]  # Admin user ID
     assignedAt: Optional[datetime]
     pilotId: Optional[int]
-    
+
     # Review fields
     reviewStatus: Optional[str]  # 'pending', 'reviewed', 'appealed'
     reviewerRating: Optional[int]  # 1-5 stars
@@ -580,8 +606,8 @@ class CreateErrandInput:
     dropoffLocation: Optional[str] = None
     note: Optional[str] = None  # Added note field
     pickupTimeSlotStart: Optional[str] = None  # ISO format datetime string
-    pickupTimeSlotEnd: Optional[str] = None    # ISO format datetime string
-    pickupTimeSlotDate: Optional[str] = None   # YYYY-MM-DD format
+    pickupTimeSlotEnd: Optional[str] = None  # ISO format datetime string
+    pickupTimeSlotDate: Optional[str] = None  # YYYY-MM-DD format
     # New scheduling API (backward compatible). The frontend may send either
     # the legacy pickupTimeSlot* fields or a nested schedule object.
     scheduleType: Optional[str] = None  # e.g. 'now' | 'one_time' | 'recurring'
@@ -611,7 +637,7 @@ class ScheduleInput:
     # one_time
     date: Optional[str] = None
     startTime: Optional[str] = None  # 'HH:MM'
-    endTime: Optional[str] = None    # 'HH:MM'
+    endTime: Optional[str] = None  # 'HH:MM'
 
     # recurring (accepted but not persisted yet)
     frequency: Optional[str] = None
@@ -711,6 +737,7 @@ class AuthResponse:
 @strawberry.type
 class Transparency:
     """User's transparency metrics"""
+
     completed_errands: int
     documents_handled: int
 
@@ -718,6 +745,7 @@ class Transparency:
 @strawberry.type
 class UserProfile:
     """Current user profile information"""
+
     id: int
     userUuid: str
     email: str
@@ -782,7 +810,10 @@ def _normalize_otp_options(channel: str | None, mode: str | None) -> tuple[str, 
         resolved_channel = _DEFAULT_OTP_CHANNEL
     if resolved_mode not in _OTP_MODES:
         resolved_mode = _DEFAULT_OTP_MODE
-    if resolved_mode in {"link", "both"} and not (os.getenv("OTP_VERIFICATION_LINK_BASE_URL") or "").strip():
+    if (
+        resolved_mode in {"link", "both"}
+        and not (os.getenv("OTP_VERIFICATION_LINK_BASE_URL") or "").strip()
+    ):
         resolved_mode = "code"
     return resolved_channel, resolved_mode
 
@@ -808,7 +839,9 @@ def _build_otp_link(email: str, code: str) -> str | None:
 def _build_otp_body(*, email: str, code: str, purpose: str, mode: str) -> str:
     link = _build_otp_link(email, code)
     if mode in ("link", "both") and not link:
-        raise ValueError("OTP link delivery requested but OTP_VERIFICATION_LINK_BASE_URL is not set")
+        raise ValueError(
+            "OTP link delivery requested but OTP_VERIFICATION_LINK_BASE_URL is not set"
+        )
 
     if mode == "link":
         return (
@@ -822,10 +855,7 @@ def _build_otp_body(*, email: str, code: str, purpose: str, mode: str) -> str:
             "It expires in 10 minutes."
         )
 
-    return (
-        f"Your security code is:\n\n{code}\n\n"
-        "It expires in 10 minutes."
-    )
+    return f"Your security code is:\n\n{code}\n\n" "It expires in 10 minutes."
 
 
 async def _prepare_and_send_otp(
@@ -836,7 +866,7 @@ async def _prepare_and_send_otp(
     channel: str,
     mode: str,
 ) -> None:
-    from otp import generate_numeric_code, hash_code, now_ts
+    from app.utils.otp import generate_numeric_code, hash_code, now_ts
 
     code = generate_numeric_code(6)
     user.email_otp_hash = hash_code(code)
@@ -851,7 +881,9 @@ async def _prepare_and_send_otp(
         if not user.phone:
             raise ValueError("Phone number required for SMS OTP delivery")
         try:
-            result = await asyncio.to_thread(send_sms, to_number=user.phone, body_text=body_text)
+            result = await asyncio.to_thread(
+                send_sms, to_number=user.phone, body_text=body_text
+            )
             if not result.delivered:
                 print(f"[GRAPHQL OTP] SMS send failed: {result.detail}")
                 user.email_otp_last_sent_at = 0
@@ -875,6 +907,7 @@ async def _prepare_and_send_otp(
         )
         if result.provider == "stdout":
             if channel != "sms" and user.phone:
+
                 async def _dispatch_stdout_sms_fallback() -> None:
                     fallback = await asyncio.to_thread(
                         send_sms,
@@ -882,13 +915,16 @@ async def _prepare_and_send_otp(
                         body_text=body_text,
                     )
                     if not fallback.delivered:
-                        print(f"[GRAPHQL OTP] Stdout SMS fallback failed: {fallback.detail}")
+                        print(
+                            f"[GRAPHQL OTP] Stdout SMS fallback failed: {fallback.detail}"
+                        )
 
                 asyncio.create_task(_dispatch_stdout_sms_fallback())
             return
         if not result.delivered:
             print(f"[GRAPHQL OTP] Email send failed: {result.detail}")
             if channel != "sms" and user.phone:
+
                 async def _dispatch_sms_fallback() -> None:
                     fallback = await asyncio.to_thread(
                         send_sms,
@@ -908,6 +944,7 @@ async def _prepare_and_send_otp(
     except Exception as e:
         print(f"[GRAPHQL OTP] Email send failed: {e}")
         if channel != "sms" and user.phone:
+
             async def _dispatch_sms_fallback() -> None:
                 fallback = await asyncio.to_thread(
                     send_sms,
@@ -927,7 +964,8 @@ async def _prepare_and_send_otp(
 def _to_gql(model: ErrandModel) -> Errand:
     return Errand(
         id=model.id,
-        referenceNumber=getattr(model, "reference_number", None) or _make_reference_number(model.id),
+        referenceNumber=getattr(model, "reference_number", None)
+        or _make_reference_number(model.id),
         title=model.title,
         description=model.description,
         categoryId=getattr(model, "category_id", None),
@@ -951,7 +989,9 @@ def _to_gql(model: ErrandModel) -> Errand:
         issueStatus=getattr(model, "issue_status", None),
         issueResolvedAt=getattr(model, "issue_resolved_at", None),
         issueResolutionNotes=getattr(model, "issue_resolution_notes", None),
-        issueEvidenceAttachmentIds=getattr(model, "issue_evidence_attachment_ids", None),
+        issueEvidenceAttachmentIds=getattr(
+            model, "issue_evidence_attachment_ids", None
+        ),
         created_at=model.created_at,
         userId=model.user_id,
         pickupTimeSlotStart=getattr(model, "pickup_time_slot_start", None),
@@ -1021,14 +1061,18 @@ class Mutation:
         return True
 
     @strawberry.mutation
-    async def update_profile(self, info: Info, input: UpdateProfileInput) -> UserProfile:
+    async def update_profile(
+        self, info: Info, input: UpdateProfileInput
+    ) -> UserProfile:
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
 
         if not current_user_id:
             raise ValueError("Not authenticated")
 
-        user = await session.get(User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
+        user = await session.get(
+            User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS
+        )
         if not user:
             raise ValueError("User not found")
 
@@ -1054,7 +1098,7 @@ class Mutation:
         await session.commit()
         await session.refresh(user)
 
-        admin_emails = os.getenv('ADMIN_EMAILS', '').split(',')
+        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
         admin_emails_list = [e.strip() for e in admin_emails if e.strip()]
         is_admin = user.email.strip() in admin_emails_list
 
@@ -1076,6 +1120,7 @@ class Mutation:
             profileImageUrl=getattr(user, "profile_image_url", None),
             transparency=None,
         )
+
     @strawberry.mutation
     async def create_errand(self, info: Info, input: CreateErrandInput) -> Errand:
         session: AsyncSession = info.context["db"]
@@ -1101,7 +1146,9 @@ class Mutation:
             )
 
             if not sub_active:
-                payment_session_id = (getattr(input, "paymentSessionId", None) or "").strip()
+                payment_session_id = (
+                    getattr(input, "paymentSessionId", None) or ""
+                ).strip()
                 if not payment_session_id:
                     raise ValueError("Payment required")
 
@@ -1135,30 +1182,46 @@ class Mutation:
         schedule = getattr(input, "schedule", None)
         schedule_type = (getattr(input, "scheduleType", None) or "").strip().lower()
         if schedule is not None:
-            schedule_kind = (getattr(schedule, "type", None) or schedule_type or "").strip().lower()
+            schedule_kind = (
+                (getattr(schedule, "type", None) or schedule_type or "").strip().lower()
+            )
             if schedule_kind == "now":
                 pickup_time_slot_date = None
                 pickup_time_start = None
                 pickup_time_end = None
             elif schedule_kind == "one_time":
-                pickup_time_slot_date = getattr(schedule, "date", None) or pickup_time_slot_date
+                pickup_time_slot_date = (
+                    getattr(schedule, "date", None) or pickup_time_slot_date
+                )
                 start_time = getattr(schedule, "startTime", None)
                 end_time = getattr(schedule, "endTime", None)
                 # Convert date+time (HH:MM) into ISO-like strings and parse.
                 if pickup_time_slot_date and start_time:
                     from datetime import datetime
-                    pickup_time_start = datetime.fromisoformat(f"{pickup_time_slot_date}T{start_time}:00")
+
+                    pickup_time_start = datetime.fromisoformat(
+                        f"{pickup_time_slot_date}T{start_time}:00"
+                    )
                 if pickup_time_slot_date and end_time:
                     from datetime import datetime
-                    pickup_time_end = datetime.fromisoformat(f"{pickup_time_slot_date}T{end_time}:00")
+
+                    pickup_time_end = datetime.fromisoformat(
+                        f"{pickup_time_slot_date}T{end_time}:00"
+                    )
 
         # Parse legacy ISO slot strings if provided (frontends before schedule object).
         if pickup_time_start is None and input.pickupTimeSlotStart:
             from datetime import datetime
-            pickup_time_start = datetime.fromisoformat(input.pickupTimeSlotStart.replace('Z', '+00:00'))
+
+            pickup_time_start = datetime.fromisoformat(
+                input.pickupTimeSlotStart.replace("Z", "+00:00")
+            )
         if pickup_time_end is None and input.pickupTimeSlotEnd:
             from datetime import datetime
-            pickup_time_end = datetime.fromisoformat(input.pickupTimeSlotEnd.replace('Z', '+00:00'))
+
+            pickup_time_end = datetime.fromisoformat(
+                input.pickupTimeSlotEnd.replace("Z", "+00:00")
+            )
 
         model = ErrandModel(
             reference_number=placeholder_ref,
@@ -1211,7 +1274,9 @@ class Mutation:
         return _to_gql(model)
 
     @strawberry.mutation
-    async def update_errand_status(self, info: Info, input: UpdateErrandStatusInput) -> Errand:
+    async def update_errand_status(
+        self, info: Info, input: UpdateErrandStatusInput
+    ) -> Errand:
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
         if not current_user_id:
@@ -1246,6 +1311,7 @@ class Mutation:
 
         # Log event: status change
         from models import ErrandEvent
+
         event = ErrandEvent(
             errand_id=model.id,
             event_type="status_change",
@@ -1263,7 +1329,9 @@ class Mutation:
             and getattr(model, "confirmation_sent_at", None) is None
         )
         if should_auto_send:
-            user = await session.get(User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
+            user = await session.get(
+                User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS
+            )
             if user and user.email:
                 subject = f"Errand confirmation - #{model.id} ({model.title})"
                 body = (
@@ -1302,15 +1370,20 @@ class Mutation:
         except Exception as e:
             print(f"[notify] graphql status update email failed: {e}")
         return _to_gql(model)
+
     @strawberry.mutation
-    async def pilot_update_errand_status(self, info: Info, input: PilotUpdateErrandStatusInput) -> Errand:
+    async def pilot_update_errand_status(
+        self, info: Info, input: PilotUpdateErrandStatusInput
+    ) -> Errand:
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
         if not current_user_id:
             raise ValueError("Missing user_id (not logged in)")
 
         # Verify the user is a pilot
-        user_result = await session.execute(select(User).where(User.id == current_user_id))
+        user_result = await session.execute(
+            select(User).where(User.id == current_user_id)
+        )
         user = user_result.scalars().first()
         if not user or not user.is_pilot:
             raise ValueError("Only pilots can perform this action.")
@@ -1337,6 +1410,7 @@ class Mutation:
                 raise ValueError("Errand is already claimed by another pilot.")
             model.pilot_id = current_user_id
             from datetime import datetime, timezone
+
             model.assigned_at = datetime.now(timezone.utc)
         elif previous_status != "submitted":
             # For any transition after assignment, verify this pilot owns it
@@ -1353,6 +1427,7 @@ class Mutation:
 
         if next_status == "delivered":
             from datetime import datetime, timezone
+
             model.completed_at = datetime.now(timezone.utc)
             if input.photoUrl is not None:
                 model.photo_url = input.photoUrl
@@ -1363,6 +1438,7 @@ class Mutation:
 
         # Log event: status change
         from models import ErrandEvent
+
         event = ErrandEvent(
             errand_id=model.id,
             event_type="status_change",
@@ -1422,22 +1498,29 @@ class Mutation:
             model.dropoff_location = input.dropoffLocation
         if input.note is not None:
             model.note = input.note
-        
+
         # Handle time slot updates
         if input.pickupTimeSlotStart is not None:
             from datetime import datetime
-            model.pickup_time_slot_start = datetime.fromisoformat(input.pickupTimeSlotStart.replace('Z', '+00:00'))
+
+            model.pickup_time_slot_start = datetime.fromisoformat(
+                input.pickupTimeSlotStart.replace("Z", "+00:00")
+            )
         if input.pickupTimeSlotEnd is not None:
             from datetime import datetime
-            model.pickup_time_slot_end = datetime.fromisoformat(input.pickupTimeSlotEnd.replace('Z', '+00:00'))
+
+            model.pickup_time_slot_end = datetime.fromisoformat(
+                input.pickupTimeSlotEnd.replace("Z", "+00:00")
+            )
         if input.pickupTimeSlotDate is not None:
             model.pickup_time_slot_date = input.pickupTimeSlotDate
 
         await session.commit()
         await session.refresh(model)
-        
+
         # Log event: errand edited
         from models import ErrandEvent
+
         event = ErrandEvent(
             errand_id=model.id,
             event_type="edited",
@@ -1448,11 +1531,13 @@ class Mutation:
         )
         session.add(event)
         await session.commit()
-        
+
         return _to_gql(model)
 
     @strawberry.mutation
-    async def report_errand_issue(self, info: Info, input: ReportErrandIssueInput) -> Errand:
+    async def report_errand_issue(
+        self, info: Info, input: ReportErrandIssueInput
+    ) -> Errand:
         """Customer reports an issue; locks in issue metadata and advances status."""
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
@@ -1485,7 +1570,9 @@ class Mutation:
 
         evidence_ids = input.evidenceAttachmentIds or []
         # Keep this intentionally simple (string snapshot) for MVP.
-        evidence_snapshot = ",".join(str(int(x)) for x in evidence_ids if x is not None) or None
+        evidence_snapshot = (
+            ",".join(str(int(x)) for x in evidence_ids if x is not None) or None
+        )
 
         # Store metadata.
         setattr(model, "issue_reason", reason)
@@ -1532,7 +1619,9 @@ class Mutation:
         return _to_gql(model)
 
     @strawberry.mutation
-    async def send_errand_confirmation(self, info: Info, input: SendErrandConfirmationInput) -> bool:
+    async def send_errand_confirmation(
+        self, info: Info, input: SendErrandConfirmationInput
+    ) -> bool:
         """Send an errand details confirmation email to the customer."""
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
@@ -1598,24 +1687,24 @@ class Mutation:
         print(f"[DELETE_ERRAND] Found errand={errand}")
         if errand is None:
             print("[DELETE_ERRAND] ERROR: Errand not found or permission denied")
-            raise ValueError("Errand not found or you do not have permission to delete it")
+            raise ValueError(
+                "Errand not found or you do not have permission to delete it"
+            )
 
         # Delete all attachments associated with this errand first
         from models import ErrandAttachment
+
         await session.execute(
             delete(ErrandAttachment).where(ErrandAttachment.errand_id == id)
         )
 
         # Delete all events associated with this errand
         from models import ErrandEvent
-        await session.execute(
-            delete(ErrandEvent).where(ErrandEvent.errand_id == id)
-        )
+
+        await session.execute(delete(ErrandEvent).where(ErrandEvent.errand_id == id))
 
         # Delete the errand itself
-        await session.execute(
-            delete(ErrandModel).where(ErrandModel.id == id)
-        )
+        await session.execute(delete(ErrandModel).where(ErrandModel.id == id))
         await session.commit()
         print(f"[DELETE_ERRAND] ✅ Successfully deleted errand id={id}")
         return True
@@ -1627,14 +1716,15 @@ class Mutation:
         current_user_id = info.context.get("current_user_id")
         if not current_user_id:
             raise ValueError("Missing user_id (not logged in)")
-        
+
         # Check if current user is admin using proper admin verification
-        from admin_utils import require_admin_user
+        from app.utils.admin_utils import require_admin_user
+
         try:
             admin_user = await require_admin_user(session, current_user_id)
         except Exception as e:
             raise ValueError(f"Only admins can assign errands: {str(e)}")
-        
+
         # Get the errand
         errand_result = await session.execute(
             select(ErrandModel).where(ErrandModel.id == errand_id)
@@ -1642,20 +1732,23 @@ class Mutation:
         errand = errand_result.scalars().first()
         if not errand:
             raise ValueError("Errand not found")
-        
+
         # Check status is 'submitted'
         if _normalize_status(errand.status) != "submitted":
-            raise ValueError(f"Can only assign errands with 'submitted' status, current: {errand.status}")
-        
+            raise ValueError(
+                f"Can only assign errands with 'submitted' status, current: {errand.status}"
+            )
+
         # Assign to current admin
         errand.assigned_to = current_user_id
         errand.assigned_at = datetime.now()
-        
+
         # Change status to 'assigned'
         errand.status = "assigned"
-        
+
         # Log event
         from models import ErrandEvent
+
         event = ErrandEvent(
             errand_id=errand.id,
             event_type="assigned",
@@ -1665,7 +1758,7 @@ class Mutation:
             user_id=current_user_id,
         )
         session.add(event)
-        
+
         await session.commit()
         await session.refresh(errand)
 
@@ -1682,20 +1775,23 @@ class Mutation:
         return _to_gql(errand)
 
     @strawberry.mutation
-    async def approve_errand(self, info: Info, errand_id: int, notes: str = "") -> Errand:
+    async def approve_errand(
+        self, info: Info, errand_id: int, notes: str = ""
+    ) -> Errand:
         """Admin approves an assigned errand and changes status to 'approved'."""
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
         if not current_user_id:
             raise ValueError("Missing user_id (not logged in)")
-        
+
         # Check if current user is admin using proper admin verification
-        from admin_utils import require_admin_user
+        from app.utils.admin_utils import require_admin_user
+
         try:
             admin_user = await require_admin_user(session, current_user_id)
         except Exception as e:
             raise ValueError(f"Only admins can approve errands: {str(e)}")
-        
+
         # Get the errand
         errand_result = await session.execute(
             select(ErrandModel).where(ErrandModel.id == errand_id)
@@ -1703,27 +1799,31 @@ class Mutation:
         errand = errand_result.scalars().first()
         if not errand:
             raise ValueError("Errand not found")
-        
+
         # Check status is 'assigned'
         if _normalize_status(errand.status) != "assigned":
-            raise ValueError(f"Can only approve 'assigned' errands, current: {errand.status}")
-        
+            raise ValueError(
+                f"Can only approve 'assigned' errands, current: {errand.status}"
+            )
+
         # Update status to approved
         old_status = errand.status
         errand.status = "approved"
-        
+
         # Log event
         from models import ErrandEvent
+
         event = ErrandEvent(
             errand_id=errand.id,
             event_type="approved",
             old_status=old_status,
             new_status="approved",
-            note=f"Approved by admin {admin_user.email}" + (f": {notes}" if notes else ""),
+            note=f"Approved by admin {admin_user.email}"
+            + (f": {notes}" if notes else ""),
             user_id=current_user_id,
         )
         session.add(event)
-        
+
         await session.commit()
         await session.refresh(errand)
         return _to_gql(errand)
@@ -1735,7 +1835,7 @@ class Mutation:
         current_user_id = info.context.get("current_user_id")
         if not current_user_id:
             raise ValueError("Missing user_id (not logged in)")
-        
+
         # Get the errand
         errand_result = await session.execute(
             select(ErrandModel).where(ErrandModel.id == errand_id)
@@ -1743,25 +1843,30 @@ class Mutation:
         errand = errand_result.scalars().first()
         if not errand:
             raise ValueError("Errand not found")
-        
+
         # Check if current user is the customer or the assigned admin
         is_customer = errand.user_id == current_user_id
         is_assigned_admin = errand.assigned_to == current_user_id
-        
+
         if not (is_customer or is_assigned_admin):
-            raise ValueError("Only the customer or assigned admin can mark this errand as done")
-        
+            raise ValueError(
+                "Only the customer or assigned admin can mark this errand as done"
+            )
+
         # Check status is 'assigned'
         if _normalize_status(errand.status) != "assigned":
-            raise ValueError(f"Can only mark 'assigned' errands as done, current: {errand.status}")
-        
+            raise ValueError(
+                f"Can only mark 'assigned' errands as done, current: {errand.status}"
+            )
+
         # Change status to 'completed'
         previous_status = errand.status
         errand.status = "completed"
         errand.review_status = "pending"  # Ready for customer review
-        
+
         # Log event
         from models import ErrandEvent
+
         event = ErrandEvent(
             errand_id=errand.id,
             event_type="completed",
@@ -1771,7 +1876,7 @@ class Mutation:
             user_id=current_user_id,
         )
         session.add(event)
-        
+
         await session.commit()
         await session.refresh(errand)
 
@@ -1916,7 +2021,11 @@ class Mutation:
         reason_clean = (reason or "").strip()
         note_parts = [
             f"Customer cancelled ({stage})",
-            "Policy consent: agreed" if agree_to_deduction else "Policy consent: not required",
+            (
+                "Policy consent: agreed"
+                if agree_to_deduction
+                else "Policy consent: not required"
+            ),
         ]
         if stage == "pre-assignment":
             note_parts.append("Policy: zero charge (no pilot assigned)")
@@ -1952,13 +2061,15 @@ class Mutation:
         return _to_gql(errand)
 
     @strawberry.mutation
-    async def submit_errand_review(self, info: Info, errand_id: int, rating: int, notes: str = None) -> Errand:
+    async def submit_errand_review(
+        self, info: Info, errand_id: int, rating: int, notes: str = None
+    ) -> Errand:
         """Customer submits a review after errand completion."""
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
         if not current_user_id:
             raise ValueError("Missing user_id (not logged in)")
-        
+
         # Get the errand
         errand_result = await session.execute(
             select(ErrandModel).where(ErrandModel.id == errand_id)
@@ -1966,35 +2077,38 @@ class Mutation:
         errand = errand_result.scalars().first()
         if not errand:
             raise ValueError("Errand not found")
-        
+
         # Only customer can review
         if errand.user_id != current_user_id:
             raise ValueError("Only the customer can review this errand")
-        
+
         # Check status is 'completed'
         if _normalize_status(errand.status) != "completed":
-            raise ValueError(f"Can only review completed errands, current: {errand.status}")
+            raise ValueError(
+                f"Can only review completed errands, current: {errand.status}"
+            )
 
         # Prevent duplicate rewards + review spam.
         if (errand.review_status or "").strip().lower() == "reviewed":
             raise ValueError("Review already submitted")
-        
+
         # Validate rating
         if rating < 1 or rating > 5:
             raise ValueError("Rating must be between 1 and 5")
-        
+
         # Validate notes
         if notes and len(notes) > 1000:
             raise ValueError("Review notes are too long (max 1000 characters)")
-        
+
         # Store review
         errand.reviewer_rating = rating
         errand.reviewer_notes = notes or None
         errand.review_status = "reviewed"
         errand.review_completed_at = datetime.now()
-        
+
         # Log event
         from models import ErrandEvent
+
         event = ErrandEvent(
             errand_id=errand.id,
             event_type="reviewed",
@@ -2004,7 +2118,7 @@ class Mutation:
             user_id=current_user_id,
         )
         session.add(event)
-        
+
         await session.commit()
         await session.refresh(errand)
 
@@ -2012,7 +2126,7 @@ class Mutation:
         # We key by source=review_reward:<errand_id> to make this idempotent.
         try:
             from models import PromoCode
-            from promo_code_service import issue_promo_code
+            from app.services.promo_code_service import issue_promo_code
 
             source = f"review_reward:{int(errand.id)}"
             existing = await session.scalar(
@@ -2038,8 +2152,14 @@ class Mutation:
     @strawberry.mutation
     async def login(self, info: Info, input: LoginInput) -> AuthResponse:
         """Login a user with email or phone and password"""
-        from auth import create_access_token, create_refresh_token, is_email_confirmation_disabled, verify_password
+        from auth import (
+            create_access_token,
+            create_refresh_token,
+            is_email_confirmation_disabled,
+            verify_password,
+        )
         import os
+
         session: AsyncSession = info.context["db"]
         disable_email_confirmation = is_email_confirmation_disabled()
         role = (input.role or "client").strip().lower()
@@ -2049,14 +2169,15 @@ class Mutation:
         identifier = (input.email or "").strip()
         if not identifier:
             raise ValueError("Invalid email or password")
-        
+
         user = await _get_auth_user_by_identifier(session, identifier)
-        
+
         if not user:
             raise ValueError("Invalid email or expired code")
-            
+
         try:
             from routes_auth import _check_otp, _clear_otp
+
             _check_otp(user, input.password)
             _clear_otp(user)
             session.add(user)
@@ -2065,22 +2186,22 @@ class Mutation:
         except Exception as e:
             print(f"[AUTH] Error verifying OTP for {identifier}: {e}", flush=True)
             raise ValueError("Invalid or expired code")
-        
+
         if not disable_email_confirmation and not user.is_email_verified:
             raise ValueError("Email not verified - please verify your email first")
 
         if role == "pilot" and not user.is_pilot:
             raise ValueError("This account is not registered as a pilot")
-        
+
         # Create token
         token = create_access_token(user_id=user.id)
         refresh_token = create_refresh_token(user_id=user.id)
-        
+
         # Check if user is admin
-        admin_emails = os.getenv('ADMIN_EMAILS', '').split(',')
+        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
         admin_emails_list = [e.strip().lower() for e in admin_emails if e.strip()]
         is_admin = user.email.strip().lower() in admin_emails_list
-        
+
         return AuthResponse(
             accessToken=token,
             refreshToken=refresh_token,
@@ -2103,15 +2224,23 @@ class Mutation:
     @strawberry.mutation
     async def signup(self, info: Info, input: SignupInput) -> AuthResponse:
         """Sign up a new user"""
-        from auth import create_access_token, create_refresh_token, hash_password, is_email_confirmation_disabled
+        from auth import (
+            create_access_token,
+            create_refresh_token,
+            hash_password,
+            is_email_confirmation_disabled,
+        )
         import os
+
         session: AsyncSession = info.context["db"]
         disable_email_confirmation = is_email_confirmation_disabled()
-        channel, mode = _normalize_otp_options(input.otpDeliveryChannel, input.otpDeliveryMode)
+        channel, mode = _normalize_otp_options(
+            input.otpDeliveryChannel, input.otpDeliveryMode
+        )
         role = (input.role or "client").strip().lower()
         if role not in {"client", "pilot"}:
             raise ValueError("Invalid role. Use client or pilot.")
-        
+
         raw_identifier = (input.email or "").strip()
         raw_phone = (input.phone or "").strip()
         if not raw_identifier:
@@ -2129,13 +2258,19 @@ class Mutation:
             normalized_phone = normalize_phone_for_storage(raw_phone) or None
             existing = await _get_auth_user_by_email(session, email)
 
-        phone_owner = await _get_auth_user_by_phone(session, normalized_phone) if normalized_phone else None
+        phone_owner = (
+            await _get_auth_user_by_phone(session, normalized_phone)
+            if normalized_phone
+            else None
+        )
         if phone_owner and (not existing or phone_owner.id != existing.id):
             raise ValueError("Phone number already registered")
 
         if existing:
             if existing.is_pilot != (role == "pilot"):
-                conflict_label = "Phone number" if identifier_kind == "phone" else "Email"
+                conflict_label = (
+                    "Phone number" if identifier_kind == "phone" else "Email"
+                )
                 raise ValueError(f"{conflict_label} already registered")
             # If the account exists but isn't verified, resend OTP for the same email.
             if not existing.is_email_verified:
@@ -2148,8 +2283,10 @@ class Mutation:
                     await session.commit()
                     token = create_access_token(user_id=existing.id)
                     refresh_token = create_refresh_token(user_id=existing.id)
-                    admin_emails = os.getenv('ADMIN_EMAILS', '').split(',')
-                    is_admin = existing.email.strip() in [e.strip() for e in admin_emails if e.strip()]
+                    admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
+                    is_admin = existing.email.strip() in [
+                        e.strip() for e in admin_emails if e.strip()
+                    ]
                     return AuthResponse(
                         accessToken=token,
                         refreshToken=refresh_token,
@@ -2177,8 +2314,12 @@ class Mutation:
                 )
 
                 raise ValueError("Email pending verification. We sent a new code.")
-            raise ValueError("Phone number already registered" if identifier_kind == "phone" else "Email already registered")
-        
+            raise ValueError(
+                "Phone number already registered"
+                if identifier_kind == "phone"
+                else "Email already registered"
+            )
+
         # Create new user
         first_name = (input.firstName or "").strip()
         last_name = (input.lastName or "").strip()
@@ -2203,7 +2344,7 @@ class Mutation:
         session.add(user)
         await session.commit()
         await session.refresh(user)
-        
+
         if not disable_email_confirmation:
             await _prepare_and_send_otp(
                 session=session,
@@ -2212,13 +2353,13 @@ class Mutation:
                 channel=("sms" if identifier_kind == "phone" else channel),
                 mode=mode,
             )
-        
+
         # Return token (account will be unverified until email is confirmed)
         token = create_access_token(user_id=user.id)
         refresh_token = create_refresh_token(user_id=user.id)
-        
+
         # Check if user is admin
-        admin_emails = os.getenv('ADMIN_EMAILS', '').split(',')
+        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
         admin_emails_list = [e.strip().lower() for e in admin_emails if e.strip()]
         is_admin = user.email.strip().lower() in admin_emails_list
 
@@ -2258,7 +2399,9 @@ class Query:
             )
             return ClientLifecycle(**snapshot)
 
-        user = await session.get(User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
+        user = await session.get(
+            User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS
+        )
         errands_result = await session.execute(
             select(ErrandModel)
             .where(ErrandModel.user_id == current_user_id)
@@ -2288,33 +2431,37 @@ class Query:
         """Get current logged-in user's profile"""
         import os
         from models import ErrandAttachment
+
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
-        
+
         if not current_user_id:
             return None
-        
-        user = await session.get(User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
+
+        user = await session.get(
+            User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS
+        )
         if not user:
             return None
-        
+
         # Check if user is admin based on ADMIN_EMAILS environment variable
-        admin_emails = os.getenv('ADMIN_EMAILS', '').split(',')
+        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
         admin_emails_list = [e.strip() for e in admin_emails if e.strip()]
         is_admin = user.email.strip() in admin_emails_list
-        
+
         # Get transparency data
         # Count completed errands (jobs that are finished)
         completed_statuses = {"completed", "accepted", "delivered"}
         completed_q = await session.execute(
-            select(ErrandModel)
-            .where(
+            select(ErrandModel).where(
                 ErrandModel.user_id == current_user_id,
                 ErrandModel.status.in_(completed_statuses),
             )
         )
         completed_count = len(completed_q.scalars().all())
-        print(f"[ME QUERY] user_id={current_user_id}, completed_count={completed_count}")
+        print(
+            f"[ME QUERY] user_id={current_user_id}, completed_count={completed_count}"
+        )
 
         # Count all documents uploaded
         docs_q = await session.execute(
@@ -2324,7 +2471,7 @@ class Query:
         )
         docs_count = len(docs_q.scalars().all())
         print(f"[ME QUERY] user_id={current_user_id}, docs_count={docs_count}")
-        
+
         return UserProfile(
             id=user.id,
             userUuid=_public_user_uuid(user),
@@ -2343,23 +2490,23 @@ class Query:
             profileImageUrl=getattr(user, "profile_image_url", None),
             transparency=Transparency(
                 completed_errands=int(completed_count),
-                documents_handled=int(docs_count)
-            )
+                documents_handled=int(docs_count),
+            ),
         )
 
     @strawberry.field
     async def errands(self, info: Info) -> list[Errand]:
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
-        
+
         # Return only the current user's errands if logged in
         if not current_user_id:
             return []
-        
+
         result = await session.execute(
-            select(ErrandModel).where(
-                ErrandModel.user_id == current_user_id
-            ).order_by(ErrandModel.created_at.desc())
+            select(ErrandModel)
+            .where(ErrandModel.user_id == current_user_id)
+            .order_by(ErrandModel.created_at.desc())
         )
         rows = result.scalars().all()
         return [_to_gql(m) for m in rows]
@@ -2374,7 +2521,9 @@ class Query:
         # Determine admin state (same logic as `me`).
         admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
         admin_emails_list = [e.strip() for e in admin_emails if e.strip()]
-        user = await session.get(User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
+        user = await session.get(
+            User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS
+        )
         is_admin = bool(user and user.email and user.email.strip() in admin_emails_list)
 
         # Access control:
@@ -2405,7 +2554,9 @@ class Query:
         # Determine admin state (same logic as `me`).
         admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
         admin_emails_list = [e.strip() for e in admin_emails if e.strip()]
-        user = await session.get(User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
+        user = await session.get(
+            User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS
+        )
         is_admin = bool(user and user.email and user.email.strip() in admin_emails_list)
 
         ids_norm = [int(i) for i in (ids or []) if i is not None]
@@ -2445,7 +2596,9 @@ class Query:
         # Determine admin state (same logic as `me`).
         admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
         admin_emails_list = [e.strip() for e in admin_emails if e.strip()]
-        user = await session.get(User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
+        user = await session.get(
+            User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS
+        )
         is_admin = bool(user and user.email and user.email.strip() in admin_emails_list)
 
         from models import ErrandEvent
@@ -2457,9 +2610,8 @@ class Query:
             safe_limit = 50
         safe_limit = max(1, min(safe_limit, 200))
 
-        stmt = (
-            select(ErrandEvent, ErrandModel)
-            .join(ErrandModel, ErrandModel.id == ErrandEvent.errand_id)
+        stmt = select(ErrandEvent, ErrandModel).join(
+            ErrandModel, ErrandModel.id == ErrandEvent.errand_id
         )
         if not is_admin:
             stmt = stmt.where(ErrandModel.user_id == current_user_id)
@@ -2489,10 +2641,10 @@ class Query:
         rows = result.all()
 
         events: list[ErrandTimelineEvent] = []
-        for (e, errand) in rows:
-            reference = getattr(errand, "reference_number", None) or _make_reference_number(
-                int(getattr(errand, "id", 0) or 0)
-            )
+        for e, errand in rows:
+            reference = getattr(
+                errand, "reference_number", None
+            ) or _make_reference_number(int(getattr(errand, "id", 0) or 0))
             created_at = getattr(e, "created_at", None) or datetime.now(timezone.utc)
             events.append(
                 ErrandTimelineEvent(
@@ -2510,5 +2662,6 @@ class Query:
             )
 
         return events
+
 
 schema = strawberry.Schema(query=Query, mutation=Mutation)

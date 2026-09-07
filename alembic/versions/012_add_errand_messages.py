@@ -9,7 +9,6 @@ Create Date: 2026-04-01
 from alembic import op
 import sqlalchemy as sa
 
-
 # revision identifiers, used by Alembic.
 revision = "012_add_errand_messages"
 down_revision = "011_add_tip_metadata"
@@ -21,7 +20,9 @@ def upgrade() -> None:
     op.create_table(
         "errand_messages",
         sa.Column("id", sa.Integer(), primary_key=True, nullable=False),
-        sa.Column("errand_id", sa.Integer(), sa.ForeignKey("errands.id"), nullable=False),
+        sa.Column(
+            "errand_id", sa.Integer(), sa.ForeignKey("errands.id"), nullable=False
+        ),
         sa.Column("sender_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column(
             "message",

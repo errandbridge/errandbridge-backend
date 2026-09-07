@@ -4,7 +4,17 @@ Handles pilot actions: start delivery, complete delivery, pause tracking
 Integrates with tracking system
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Header, UploadFile, File, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+    Body,
+    Header,
+    UploadFile,
+    File,
+    Query,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from datetime import datetime, timezone
@@ -29,19 +39,22 @@ from models import (
     PilotLocation,
 )
 from database import get_db, AsyncSessionLocal
-from notification_utils import (
+from app.utils.notification_utils import (
     notify_customer_status,
     notify_pilot_status,
     notify_tracking_started,
     notify_admin_status,
 )
-from app.pilot_dispatch import ensure_pilot_can_accept_jobs, serialize_pilot_dispatch_state
+from app.pilot_dispatch import (
+    ensure_pilot_can_accept_jobs,
+    serialize_pilot_dispatch_state,
+)
 from app.pilot_dispatch_policy import get_pilot_dispatch_policy_state
 import hashlib
 import hmac
-from storage import build_stored_filename, put_bytes
+from app.services.storage import build_stored_filename, put_bytes
 import json
- 
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -91,7 +104,8 @@ def _pilot_has_bike(pilot: User) -> bool:
     return bool(
         getattr(pilot, "hasBike", False)
         or getattr(pilot, "has_bike", False)
-        or vehicle_type in {"bike", "bike_support", "bicycle", "motorbike", "motorcycle", "scooter"}
+        or vehicle_type
+        in {"bike", "bike_support", "bicycle", "motorbike", "motorcycle", "scooter"}
     )
 
 
@@ -137,7 +151,9 @@ def _policy_radius_miles(policy_state: Optional[dict]) -> int:
     if not policy_state:
         return MAX_ACCEPT_DISTANCE_MILES
     try:
-        radius_miles = int(policy_state.get("open_pool_radius_miles") or MAX_ACCEPT_DISTANCE_MILES)
+        radius_miles = int(
+            policy_state.get("open_pool_radius_miles") or MAX_ACCEPT_DISTANCE_MILES
+        )
     except (TypeError, ValueError):
         radius_miles = MAX_ACCEPT_DISTANCE_MILES
     return radius_miles
@@ -167,7 +183,10 @@ def _open_pool_visibility_check(
         return False, "cross_city_required"
 
     pilot_service_radius_km = _pilot_service_radius_km(pilot)
-    if pilot_service_radius_km is not None and float(distance_km) > pilot_service_radius_km:
+    if (
+        pilot_service_radius_km is not None
+        and float(distance_km) > pilot_service_radius_km
+    ):
         return False, "outside_service_radius"
 
     service_area = _pilot_service_area_text(pilot)
@@ -218,7 +237,9 @@ def _open_pool_visibility_error_detail(
     return "Errand does not match your pilot profile"
 
 
-async def _archive_route_snapshot(db: AsyncSession, errand: Errand, actor_id: Optional[int] = None) -> Optional[dict]:
+async def _archive_route_snapshot(
+    db: AsyncSession, errand: Errand, actor_id: Optional[int] = None
+) -> Optional[dict]:
     locations = await db.scalars(
         select(PilotLocation)
         .where(PilotLocation.errand_id == errand.id)
@@ -257,12 +278,17 @@ async def _archive_route_snapshot(db: AsyncSession, errand: Errand, actor_id: Op
 
     def _calc_distance_km(points: list[PilotLocation]) -> float:
         from math import radians, cos, sin, asin, sqrt
+
         if len(points) < 2:
             return 0.0
         total_distance = 0.0
         for i in range(len(points) - 1):
-            lat1, lon1 = radians(float(points[i].latitude)), radians(float(points[i].longitude))
-            lat2, lon2 = radians(float(points[i + 1].latitude)), radians(float(points[i + 1].longitude))
+            lat1, lon1 = radians(float(points[i].latitude)), radians(
+                float(points[i].longitude)
+            )
+            lat2, lon2 = radians(float(points[i + 1].latitude)), radians(
+                float(points[i + 1].longitude)
+            )
             dlat = lat2 - lat1
             dlon = lon2 - lon1
             a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
@@ -275,7 +301,9 @@ async def _archive_route_snapshot(db: AsyncSession, errand: Errand, actor_id: Op
         "pilot_id": errand.pilot_id,
         "status": errand.status,
         "started_at": errand.started_at.isoformat() if errand.started_at else None,
-        "completed_at": errand.completed_at.isoformat() if errand.completed_at else None,
+        "completed_at": (
+            errand.completed_at.isoformat() if errand.completed_at else None
+        ),
         "total_points": len(locations),
         "distance_km": _calc_distance_km(locations),
         "locations": [_serialize_location(loc) for loc in locations],
@@ -328,18 +356,26 @@ async def _get_current_user(
 ):
     token = _extract_bearer(authorization)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token"
+        )
 
     user_id = decode_access_token(token)
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
 
     user = await db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
 
     if not getattr(user, "is_pilot", False):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Pilot access required")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Pilot access required"
+        )
 
     return user
 
@@ -389,32 +425,49 @@ async def list_available_jobs(
                     policy_state=dispatch_policy,
                 )
 
-        errands.append({
-            "id": errand.id,
-            "reference_number": errand.reference_number,
-            "title": errand.title,
-            "description": errand.description,
-            "status": errand.status,
-            "pilot_id": errand.pilot_id,
-            "pilotId": errand.pilot_id,
-            "pickup_location": errand.pickup_location,
-            "dropoff_location": errand.dropoff_location,
-            "sensitivity": errand.sensitivity,
-            "created_at": errand.created_at.isoformat() if errand.created_at else None,
-            "note": errand.note,
-            # Pilots should not receive direct customer contact details.
-            "customer_name": f"{user.first_name or ''} {user.last_name or ''}".strip() or "Customer",
-            "amount": getattr(errand, "amount", 0),
-            "payment_amount_ngn_major": getattr(errand, "payment_amount_ngn_major", None),
-            "paymentAmountNgnMajor": getattr(errand, "payment_amount_ngn_major", None),
-            "distance_km": getattr(errand, "distance_km", None),
-            "matches_dispatch_policy": matches_dispatch_policy,
-            "acceptance_block_reason": acceptance_block_reason,
-            "customer_rating": getattr(errand, "customer_rating", None),
-            "pickup_time_slot_start": errand.pickup_time_slot_start.isoformat() if errand.pickup_time_slot_start else None,
-            "pickup_time_slot_end": errand.pickup_time_slot_end.isoformat() if errand.pickup_time_slot_end else None,
-            "pickup_time_slot_date": errand.pickup_time_slot_date,
-        })
+        errands.append(
+            {
+                "id": errand.id,
+                "reference_number": errand.reference_number,
+                "title": errand.title,
+                "description": errand.description,
+                "status": errand.status,
+                "pilot_id": errand.pilot_id,
+                "pilotId": errand.pilot_id,
+                "pickup_location": errand.pickup_location,
+                "dropoff_location": errand.dropoff_location,
+                "sensitivity": errand.sensitivity,
+                "created_at": (
+                    errand.created_at.isoformat() if errand.created_at else None
+                ),
+                "note": errand.note,
+                # Pilots should not receive direct customer contact details.
+                "customer_name": f"{user.first_name or ''} {user.last_name or ''}".strip()
+                or "Customer",
+                "amount": getattr(errand, "amount", 0),
+                "payment_amount_ngn_major": getattr(
+                    errand, "payment_amount_ngn_major", None
+                ),
+                "paymentAmountNgnMajor": getattr(
+                    errand, "payment_amount_ngn_major", None
+                ),
+                "distance_km": getattr(errand, "distance_km", None),
+                "matches_dispatch_policy": matches_dispatch_policy,
+                "acceptance_block_reason": acceptance_block_reason,
+                "customer_rating": getattr(errand, "customer_rating", None),
+                "pickup_time_slot_start": (
+                    errand.pickup_time_slot_start.isoformat()
+                    if errand.pickup_time_slot_start
+                    else None
+                ),
+                "pickup_time_slot_end": (
+                    errand.pickup_time_slot_end.isoformat()
+                    if errand.pickup_time_slot_end
+                    else None
+                ),
+                "pickup_time_slot_date": errand.pickup_time_slot_date,
+            }
+        )
 
     return {
         "errands": errands,
@@ -465,31 +518,52 @@ async def list_pilot_jobs(
 
     errands = []
     for errand, user in result.all():
-        errands.append({
-            "id": errand.id,
-            "reference_number": errand.reference_number,
-            "title": errand.title,
-            "description": errand.description,
-            "status": errand.status,
-            "started_at": errand.started_at.isoformat() if errand.started_at else None,
-            "started": bool(errand.started_at),
-            "pickup_location": errand.pickup_location,
-            "dropoff_location": errand.dropoff_location,
-            "sensitivity": errand.sensitivity,
-            "created_at": errand.created_at.isoformat() if errand.created_at else None,
-            "completed_at": errand.completed_at.isoformat() if errand.completed_at else None,
-            "note": errand.note,
-            # Pilots should not receive direct customer contact details.
-            "customer_name": f"{user.first_name or ''} {user.last_name or ''}".strip() or "Customer",
-            "amount": getattr(errand, "amount", 0),
-            "payment_amount_ngn_major": getattr(errand, "payment_amount_ngn_major", None),
-            "paymentAmountNgnMajor": getattr(errand, "payment_amount_ngn_major", None),
-            "distance_km": getattr(errand, "distance_km", None),
-            "customer_rating": getattr(errand, "customer_rating", None),
-            "pickup_time_slot_start": errand.pickup_time_slot_start.isoformat() if errand.pickup_time_slot_start else None,
-            "pickup_time_slot_end": errand.pickup_time_slot_end.isoformat() if errand.pickup_time_slot_end else None,
-            "pickup_time_slot_date": errand.pickup_time_slot_date,
-        })
+        errands.append(
+            {
+                "id": errand.id,
+                "reference_number": errand.reference_number,
+                "title": errand.title,
+                "description": errand.description,
+                "status": errand.status,
+                "started_at": (
+                    errand.started_at.isoformat() if errand.started_at else None
+                ),
+                "started": bool(errand.started_at),
+                "pickup_location": errand.pickup_location,
+                "dropoff_location": errand.dropoff_location,
+                "sensitivity": errand.sensitivity,
+                "created_at": (
+                    errand.created_at.isoformat() if errand.created_at else None
+                ),
+                "completed_at": (
+                    errand.completed_at.isoformat() if errand.completed_at else None
+                ),
+                "note": errand.note,
+                # Pilots should not receive direct customer contact details.
+                "customer_name": f"{user.first_name or ''} {user.last_name or ''}".strip()
+                or "Customer",
+                "amount": getattr(errand, "amount", 0),
+                "payment_amount_ngn_major": getattr(
+                    errand, "payment_amount_ngn_major", None
+                ),
+                "paymentAmountNgnMajor": getattr(
+                    errand, "payment_amount_ngn_major", None
+                ),
+                "distance_km": getattr(errand, "distance_km", None),
+                "customer_rating": getattr(errand, "customer_rating", None),
+                "pickup_time_slot_start": (
+                    errand.pickup_time_slot_start.isoformat()
+                    if errand.pickup_time_slot_start
+                    else None
+                ),
+                "pickup_time_slot_end": (
+                    errand.pickup_time_slot_end.isoformat()
+                    if errand.pickup_time_slot_end
+                    else None
+                ),
+                "pickup_time_slot_date": errand.pickup_time_slot_date,
+            }
+        )
 
     return {"errands": errands}
 
@@ -514,7 +588,9 @@ async def accept_job(
     result = await db.execute(select(Errand).where(Errand.id == errand_id))
     errand = result.scalar_one_or_none()
     if not errand:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
+        )
 
     was_unassigned = errand.pilot_id is None
 
@@ -553,8 +629,12 @@ async def accept_job(
                     "pickup_location": errand.pickup_location,
                     "dropoff_location": errand.dropoff_location,
                     "amount": getattr(errand, "amount", 0),
-                    "payment_amount_ngn_major": getattr(errand, "payment_amount_ngn_major", None),
-                    "paymentAmountNgnMajor": getattr(errand, "payment_amount_ngn_major", None),
+                    "payment_amount_ngn_major": getattr(
+                        errand, "payment_amount_ngn_major", None
+                    ),
+                    "paymentAmountNgnMajor": getattr(
+                        errand, "payment_amount_ngn_major", None
+                    ),
                     "distance_km": getattr(errand, "distance_km", None),
                     "customer_name": (
                         f"{customer.first_name or ''} {customer.last_name or ''}".strip()
@@ -611,7 +691,11 @@ async def accept_job(
         event_type="pilot_accept",
         old_status=previous_status,
         new_status=errand.status,
-        note="Pilot claimed the errand" if was_unassigned else "Pilot accepted the assigned errand",
+        note=(
+            "Pilot claimed the errand"
+            if was_unassigned
+            else "Pilot accepted the assigned errand"
+        ),
         user_id=pilot.id,
     )
     db.add(event)
@@ -636,7 +720,9 @@ async def accept_job(
             new_status=errand.status,
             trigger="pilot-accept",
             message=(
-                "Pilot claimed an open errand." if was_unassigned else "Pilot accepted the assigned errand."
+                "Pilot claimed an open errand."
+                if was_unassigned
+                else "Pilot accepted the assigned errand."
             ),
         )
         await notify_pilot_status(
@@ -660,7 +746,9 @@ async def accept_job(
             "pickup_location": errand.pickup_location,
             "dropoff_location": errand.dropoff_location,
             "amount": getattr(errand, "amount", 0),
-            "payment_amount_ngn_major": getattr(errand, "payment_amount_ngn_major", None),
+            "payment_amount_ngn_major": getattr(
+                errand, "payment_amount_ngn_major", None
+            ),
             "paymentAmountNgnMajor": getattr(errand, "payment_amount_ngn_major", None),
             "distance_km": getattr(errand, "distance_km", None),
             # Pilots should not receive direct customer contact details.
@@ -682,8 +770,12 @@ async def assign_job_legacy(
     """Legacy alias for accept-job (kept for backward compatibility)."""
     errand_id = payload.get("errand_id") or payload.get("id")
     if not errand_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="errand_id is required")
-    return await accept_job(errand_id=int(errand_id), authorization=authorization, db=db)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="errand_id is required"
+        )
+    return await accept_job(
+        errand_id=int(errand_id), authorization=authorization, db=db
+    )
 
 
 @router.get("/availability-history", response_model=dict)
@@ -701,28 +793,40 @@ async def list_availability_history(
         select(ErrandEvent, Errand)
         .join(Errand, Errand.id == ErrandEvent.errand_id)
         .where(ErrandEvent.user_id == pilot.id)
-        .where(ErrandEvent.event_type.in_([
-            "pilot_availability_request",
-            "pilot_availability_yes",
-            "pilot_availability_no",
-            "pilot_reminder",
-        ]))
+        .where(
+            ErrandEvent.event_type.in_(
+                [
+                    "pilot_availability_request",
+                    "pilot_availability_yes",
+                    "pilot_availability_no",
+                    "pilot_reminder",
+                ]
+            )
+        )
         .order_by(ErrandEvent.created_at.desc())
         .limit(limit_value)
     )
 
     history = []
     for event, errand in result.all():
-        history.append({
-            "id": event.id,
-            "event_type": event.event_type,
-            "created_at": event.created_at.isoformat() if event.created_at else None,
-            "note": event.note,
-            "errand_id": errand.id,
-            "errand_reference": errand.reference_number,
-            "errand_title": errand.title,
-            "pickup_time_slot_start": errand.pickup_time_slot_start.isoformat() if errand.pickup_time_slot_start else None,
-        })
+        history.append(
+            {
+                "id": event.id,
+                "event_type": event.event_type,
+                "created_at": (
+                    event.created_at.isoformat() if event.created_at else None
+                ),
+                "note": event.note,
+                "errand_id": errand.id,
+                "errand_reference": errand.reference_number,
+                "errand_title": errand.title,
+                "pickup_time_slot_start": (
+                    errand.pickup_time_slot_start.isoformat()
+                    if errand.pickup_time_slot_start
+                    else None
+                ),
+            }
+        )
 
     return {"events": history}
 
@@ -740,14 +844,21 @@ async def decline_job(
     result = await db.execute(select(Errand).where(Errand.id == errand_id))
     errand = result.scalar_one_or_none()
     if not errand:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
+        )
 
     if not errand.pilot_id or int(errand.pilot_id) != int(pilot.id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
+        )
 
     status_key = _normalize_status(getattr(errand, "status", None))
     started_statuses = {"picked_up", "in_progress", "delivered", "completed"}
-    if getattr(errand, "started_at", None) is not None or status_key in started_statuses:
+    if (
+        getattr(errand, "started_at", None) is not None
+        or status_key in started_statuses
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot decline once the errand has started",
@@ -805,12 +916,18 @@ async def decline_job(
 
 
 def _availability_secret() -> str:
-    return os.getenv("PILOT_AVAILABILITY_SECRET") or os.getenv("JWT_SECRET") or os.getenv("JWT_SECRET_KEY", "dev-secret-change-me")
+    return (
+        os.getenv("PILOT_AVAILABILITY_SECRET")
+        or os.getenv("JWT_SECRET")
+        or os.getenv("JWT_SECRET_KEY", "dev-secret-change-me")
+    )
 
 
 def _availability_token(errand_id: int, pilot_id: int, expires_at: int) -> str:
     msg = f"{errand_id}:{pilot_id}:{expires_at}".encode("utf-8")
-    return hmac.new(_availability_secret().encode("utf-8"), msg, hashlib.sha256).hexdigest()
+    return hmac.new(
+        _availability_secret().encode("utf-8"), msg, hashlib.sha256
+    ).hexdigest()
 
 
 @router.get("/availability-response", response_model=dict)
@@ -830,26 +947,41 @@ async def availability_response(
         pilot = await _get_current_user(authorization, db)
     else:
         if pilot_id is None or expires is None or token is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token"
+            )
         if expires < int(datetime.now(timezone.utc).timestamp()):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Availability link expired")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Availability link expired",
+            )
         expected = _availability_token(errand_id, pilot_id, expires)
         if not hmac.compare_digest(expected, token):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+            )
         pilot = await db.get(User, pilot_id)
         if not pilot or not getattr(pilot, "is_pilot", False):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Pilot access required")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Pilot access required"
+            )
 
     errand = await db.get(Errand, errand_id)
     if not errand:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
+        )
 
     if not errand.pilot_id or int(errand.pilot_id) != int(pilot.id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
+        )
 
     response_value = response.strip().lower()
     if response_value not in {"yes", "no"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Response must be yes or no")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Response must be yes or no"
+        )
 
     previous_status = errand.status
     if response_value == "yes":
@@ -914,20 +1046,31 @@ async def upload_pilot_attachment(
 
     errand = await db.get(Errand, errand_id)
     if not errand:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
+        )
 
     if not errand.pilot_id or int(errand.pilot_id) != int(pilot.id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
+        )
 
     if not file or not file.filename:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing filename")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Missing filename"
+        )
 
     content = await file.read()
     size_bytes = len(content)
     if size_bytes == 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file"
+        )
     if size_bytes > 10 * 1024 * 1024:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large (max 10MB)")
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File too large (max 10MB)",
+        )
 
     stored_filename = build_stored_filename(file.filename)
     put_bytes(
@@ -971,14 +1114,21 @@ async def upload_pilot_document(
     pilot = await _get_current_user(authorization, db)
 
     if not file or not file.filename:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing filename")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Missing filename"
+        )
 
     content = await file.read()
     size_bytes = len(content)
     if size_bytes == 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file"
+        )
     if size_bytes > 10 * 1024 * 1024:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large (max 10MB)")
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File too large (max 10MB)",
+        )
 
     stored_filename = build_stored_filename(file.filename)
     put_bytes(
@@ -1039,6 +1189,8 @@ async def list_pilot_documents(
             for doc in docs
         ]
     }
+
+
 @router.post("/start-delivery", response_model=dict)
 async def start_delivery(
     errand_id: int,
@@ -1063,8 +1215,7 @@ async def start_delivery(
 
         if not errand:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Errand not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
             )
 
         if errand.pilot_id and int(errand.pilot_id) != int(pilot_user.id):
@@ -1073,7 +1224,7 @@ async def start_delivery(
                 detail="Not assigned to this errand",
             )
 
-        if errand.status == 'in_progress':
+        if errand.status == "in_progress":
             return {
                 "success": True,
                 "already_started": True,
@@ -1090,10 +1241,10 @@ async def start_delivery(
                 "amount": getattr(errand, "amount", 0),
             }
 
-        if errand.status not in ['assigned', 'accepted']:
+        if errand.status not in ["assigned", "accepted"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot start delivery - current status is {errand.status}"
+                detail=f"Cannot start delivery - current status is {errand.status}",
             )
 
         if pilot_id and errand.pilot_id and int(errand.pilot_id) != int(pilot_id):
@@ -1105,7 +1256,7 @@ async def start_delivery(
         previous_status = errand.status
 
         # Update errand status
-        errand.status = 'in_progress'
+        errand.status = "in_progress"
         errand.started_at = datetime.now(timezone.utc)
         errand.tracking_paused = False
         if note:
@@ -1118,7 +1269,11 @@ async def start_delivery(
                 event_type="pilot_started",
                 old_status=previous_status,
                 new_status=errand.status,
-                note=(note or "Pilot started delivery")[:2000] if note else "Pilot started delivery",
+                note=(
+                    (note or "Pilot started delivery")[:2000]
+                    if note
+                    else "Pilot started delivery"
+                ),
                 user_id=pilot_user.id,
             )
         )
@@ -1174,7 +1329,7 @@ async def start_delivery(
         logger.error(f"Error starting delivery: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to start delivery"
+            detail="Failed to start delivery",
         )
 
 
@@ -1191,10 +1346,14 @@ async def submit_delay_reason(
 
     errand = await db.get(Errand, errand_id)
     if not errand:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
+        )
 
     if not errand.pilot_id or int(errand.pilot_id) != int(pilot.id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
+        )
 
     errand.issue_reason = reason
     errand.issue_notes = reason
@@ -1311,8 +1470,7 @@ async def complete_delivery(
 
         if not errand:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Errand not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
             )
 
         if errand.pilot_id and int(errand.pilot_id) != int(pilot_user.id):
@@ -1321,10 +1479,10 @@ async def complete_delivery(
                 detail="Not assigned to this errand",
             )
 
-        if errand.status != 'in_progress':
+        if errand.status != "in_progress":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot complete delivery - current status is {errand.status}"
+                detail=f"Cannot complete delivery - current status is {errand.status}",
             )
 
         # Calculate delivery time
@@ -1337,7 +1495,7 @@ async def complete_delivery(
         previous_status = errand.status
 
         # Update errand
-        errand.status = 'completed'
+        errand.status = "completed"
         errand.completed_at = datetime.now(timezone.utc)
         errand.delivery_time = delivery_time
         errand.tracking_paused = False
@@ -1357,7 +1515,11 @@ async def complete_delivery(
                 event_type="pilot_completed",
                 old_status=previous_status,
                 new_status=errand.status,
-                note=(notes or "Pilot completed delivery")[:2000] if notes else "Pilot completed delivery",
+                note=(
+                    (notes or "Pilot completed delivery")[:2000]
+                    if notes
+                    else "Pilot completed delivery"
+                ),
                 user_id=pilot_user.id,
             )
         )
@@ -1388,9 +1550,13 @@ async def complete_delivery(
         pilot_id_used = pilot_id or errand.pilot_id or 1
         archive_payload = None
         try:
-            archive_payload = await _archive_route_snapshot(db, errand, actor_id=pilot_id_used)
+            archive_payload = await _archive_route_snapshot(
+                db, errand, actor_id=pilot_id_used
+            )
         except Exception as archive_err:
-            logger.warning(f"[tracking] Unable to archive route for errand {errand_id}: {archive_err}")
+            logger.warning(
+                f"[tracking] Unable to archive route for errand {errand_id}: {archive_err}"
+            )
 
         logger.info(
             f"✅ Pilot {pilot_id_used} completed delivery {errand_id} "
@@ -1415,7 +1581,7 @@ async def complete_delivery(
         logger.error(f"Error completing delivery: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to complete delivery"
+            detail="Failed to complete delivery",
         )
 
 
@@ -1440,8 +1606,7 @@ async def pause_tracking(
 
         if not errand:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Errand not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
             )
 
         if errand.pilot_id and int(errand.pilot_id) != int(pilot_user.id):
@@ -1450,10 +1615,10 @@ async def pause_tracking(
                 detail="Not assigned to this errand",
             )
 
-        if errand.status != 'in_progress':
+        if errand.status != "in_progress":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Can only pause active deliveries"
+                detail="Can only pause active deliveries",
             )
 
         # Set tracking pause flag
@@ -1488,7 +1653,7 @@ async def pause_tracking(
         logger.error(f"Error pausing tracking: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to pause tracking"
+            detail="Failed to pause tracking",
         )
 
 
@@ -1510,8 +1675,7 @@ async def resume_tracking(
 
         if not errand:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Errand not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
             )
 
         if errand.pilot_id and int(errand.pilot_id) != int(pilot_user.id):
@@ -1520,10 +1684,10 @@ async def resume_tracking(
                 detail="Not assigned to this errand",
             )
 
-        if errand.status != 'in_progress':
+        if errand.status != "in_progress":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Can only resume active deliveries"
+                detail="Can only resume active deliveries",
             )
 
         errand.tracking_paused = False
@@ -1557,8 +1721,9 @@ async def resume_tracking(
         logger.error(f"Error resuming tracking: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to resume tracking"
+            detail="Failed to resume tracking",
         )
+
 
 @router.get("/active-delivery", response_model=dict)
 async def get_active_delivery(
@@ -1581,7 +1746,7 @@ async def get_active_delivery(
 
         query = (
             select(Errand)
-            .filter(Errand.status == 'in_progress')
+            .filter(Errand.status == "in_progress")
             .filter(Errand.pilot_id == pilot.id)
             .order_by(Errand.started_at.desc(), Errand.id.desc())
         )
@@ -1606,10 +1771,16 @@ async def get_active_delivery(
                 "pilot_id": errand.pilot_id,
                 "pilotId": errand.pilot_id,
                 "amount": getattr(errand, "amount", 0),
-                "payment_amount_ngn_major": getattr(errand, "payment_amount_ngn_major", None),
-                "paymentAmountNgnMajor": getattr(errand, "payment_amount_ngn_major", None),
+                "payment_amount_ngn_major": getattr(
+                    errand, "payment_amount_ngn_major", None
+                ),
+                "paymentAmountNgnMajor": getattr(
+                    errand, "payment_amount_ngn_major", None
+                ),
                 "status": errand.status,
-                "started_at": errand.started_at.isoformat() if errand.started_at else None,
+                "started_at": (
+                    errand.started_at.isoformat() if errand.started_at else None
+                ),
                 "tracking_paused": getattr(errand, "tracking_paused", False),
             },
         }
@@ -1620,7 +1791,7 @@ async def get_active_delivery(
         logger.error(f"Error getting active delivery: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get active delivery"
+            detail="Failed to get active delivery",
         )
 
 
@@ -1638,25 +1809,25 @@ async def assign_job(
     """
     try:
         # Get pilot from auth or request body
-        errand_id = payload.get('errand_id')
-        pilot_id = payload.get('pilot_id')
-        
+        errand_id = payload.get("errand_id")
+        pilot_id = payload.get("pilot_id")
+
         # If no pilot_id in body, get from authorization
         if not pilot_id and authorization:
             from auth import decode_access_token
+
             token = authorization.replace("Bearer ", "")
             pilot_id = decode_access_token(token)
-        
+
         if not errand_id:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="errand_id is required"
+                status_code=status.HTTP_400_BAD_REQUEST, detail="errand_id is required"
             )
-        
+
         if not pilot_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="pilot_id or valid authorization token is required"
+                detail="pilot_id or valid authorization token is required",
             )
 
         # Get the errand
@@ -1666,28 +1837,30 @@ async def assign_job(
 
         if not errand:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Errand not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
             )
 
-        print(f"[DEBUG] Errand {errand_id}: status={errand.status}, pilot_id={errand.pilot_id}", flush=True)
+        print(
+            f"[DEBUG] Errand {errand_id}: status={errand.status}, pilot_id={errand.pilot_id}",
+            flush=True,
+        )
 
         if errand.pilot_id is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Errand must be assigned by an admin before acceptance"
+                detail="Errand must be assigned by an admin before acceptance",
             )
 
         if int(errand.pilot_id) != int(pilot_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not assigned to this errand"
+                detail="Not assigned to this errand",
             )
 
         if errand.status != "assigned":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot accept errand with status {errand.status}"
+                detail=f"Cannot accept errand with status {errand.status}",
             )
 
         previous_status = errand.status
@@ -1741,7 +1914,9 @@ async def assign_job(
             "dropoff_location": errand.dropoff_location,
             "customer_name": getattr(errand, "customer_name", "Unknown"),
             "amount": getattr(errand, "amount", 0),
-            "payment_amount_ngn_major": getattr(errand, "payment_amount_ngn_major", None),
+            "payment_amount_ngn_major": getattr(
+                errand, "payment_amount_ngn_major", None
+            ),
             "paymentAmountNgnMajor": getattr(errand, "payment_amount_ngn_major", None),
             "distance_km": getattr(errand, "distance_km", None),
             "customer_rating": getattr(errand, "customer_rating", 0),
@@ -1753,5 +1928,5 @@ async def assign_job(
         logger.error(f"Error assigning job: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to assign job"
+            detail="Failed to assign job",
         )

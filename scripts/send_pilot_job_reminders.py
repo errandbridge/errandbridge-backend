@@ -6,14 +6,23 @@ from sqlalchemy import select
 
 from database import AsyncSessionLocal
 from models import Errand, ErrandEvent, User
-from notification_utils import notify_pilot_job_reminder, build_pilot_availability_token, pilot_web_base
-
+from app.utils.notification_utils import (
+    notify_pilot_job_reminder,
+    build_pilot_availability_token,
+    pilot_web_base,
+)
 
 REMINDER_INTERVAL_MINUTES = int(os.getenv("PILOT_REMINDER_INTERVAL_MINUTES", "60"))
-REMINDER_CLOSE_WINDOW_MINUTES = int(os.getenv("PILOT_REMINDER_CLOSE_WINDOW_MINUTES", "120"))
-REMINDER_CLOSE_INTERVAL_MINUTES = int(os.getenv("PILOT_REMINDER_CLOSE_INTERVAL_MINUTES", "15"))
+REMINDER_CLOSE_WINDOW_MINUTES = int(
+    os.getenv("PILOT_REMINDER_CLOSE_WINDOW_MINUTES", "120")
+)
+REMINDER_CLOSE_INTERVAL_MINUTES = int(
+    os.getenv("PILOT_REMINDER_CLOSE_INTERVAL_MINUTES", "15")
+)
 AVAILABILITY_CHECK_MINUTES = int(os.getenv("PILOT_AVAILABILITY_CHECK_MINUTES", "60"))
-AVAILABILITY_LINK_EXPIRES_MINUTES = int(os.getenv("PILOT_AVAILABILITY_LINK_EXPIRES_MINUTES", "120"))
+AVAILABILITY_LINK_EXPIRES_MINUTES = int(
+    os.getenv("PILOT_AVAILABILITY_LINK_EXPIRES_MINUTES", "120")
+)
 
 
 async def _should_send_reminder(db, errand: Errand, interval_minutes: int) -> bool:
@@ -71,17 +80,26 @@ async def send_reminders() -> None:
                 continue
 
             availability_links = None
-            if minutes_to_start is not None and minutes_to_start <= AVAILABILITY_CHECK_MINUTES:
+            if (
+                minutes_to_start is not None
+                and minutes_to_start <= AVAILABILITY_CHECK_MINUTES
+            ):
                 if not await _availability_request_sent(db, errand):
-                    expires_at = int((now.timestamp()) + (AVAILABILITY_LINK_EXPIRES_MINUTES * 60))
-                    token = build_pilot_availability_token(errand.id, int(errand.pilot_id), expires_at)
+                    expires_at = int(
+                        (now.timestamp()) + (AVAILABILITY_LINK_EXPIRES_MINUTES * 60)
+                    )
+                    token = build_pilot_availability_token(
+                        errand.id, int(errand.pilot_id), expires_at
+                    )
                     base_url = pilot_web_base()
                     availability_links = {
                         "yes": f"{base_url}/?mode=pilot&availability=yes&errandId={errand.id}&pilotId={errand.pilot_id}&expires={expires_at}&token={token}",
                         "no": f"{base_url}/?mode=pilot&availability=no&errandId={errand.id}&pilotId={errand.pilot_id}&expires={expires_at}&token={token}",
                     }
 
-            pilot = await db.get(User, int(errand.pilot_id)) if errand.pilot_id else None
+            pilot = (
+                await db.get(User, int(errand.pilot_id)) if errand.pilot_id else None
+            )
             await notify_pilot_job_reminder(
                 db,
                 errand=errand,

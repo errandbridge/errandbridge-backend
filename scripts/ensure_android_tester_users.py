@@ -3,14 +3,13 @@
 import argparse
 import asyncio
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 
 from sqlalchemy import func, select
 
 from auth import hash_password
 from database import AsyncSessionLocal
 from models import User
-
 
 DEFAULT_PASSWORD = "Password123!"
 DEFAULT_CUSTOMER_EMAIL = "customer_test_001@example.com"
@@ -186,7 +185,5 @@ if __name__ == "__main__":
     else:
         print("✅ Android tester users ensured")
         for row in result:
-            print(
-                f"   - {row['email']} ({row['role']}) -> {row['action']}"
-            )
+            print(f"   - {row['email']} ({row['role']}) -> {row['action']}")
         print(f"   - Password: {args.password}")

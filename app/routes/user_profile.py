@@ -19,7 +19,16 @@ import logging
 import sys
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Add parent directory to path (repo convention used in other route modules)
@@ -42,7 +51,9 @@ UPLOAD_DIR = os.path.join(
 try:
     os.makedirs(UPLOAD_DIR, exist_ok=True)
 except OSError as e:
-    print(f"Could not create user profile upload directory (serverless environment?): {e}")
+    print(
+        f"Could not create user profile upload directory (serverless environment?): {e}"
+    )
 
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
@@ -62,15 +73,21 @@ async def _get_current_user(
 ) -> User:
     token = _extract_bearer(authorization)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token"
+        )
 
     user_id = decode_access_token(token)
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
 
     user = await db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
 
     return user
 
@@ -93,7 +110,9 @@ async def update_profile_image(
             return {"ok": True, "profile_image_url": None}
         except Exception as e:
             logger.error(f"Error removing profile image: {e}")
-            raise HTTPException(status_code=500, detail="Failed to remove profile image")
+            raise HTTPException(
+                status_code=500, detail="Failed to remove profile image"
+            )
 
     if not profile_image:
         raise HTTPException(status_code=400, detail="Missing profile_image")

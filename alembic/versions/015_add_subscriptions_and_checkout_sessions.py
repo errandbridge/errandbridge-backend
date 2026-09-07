@@ -9,7 +9,6 @@ Create Date: 2026-04-16
 from alembic import op
 import sqlalchemy as sa
 
-
 # revision identifiers, used by Alembic.
 revision = "015_add_subscriptions_checkout"
 down_revision = "014_add_pilot_dispatch_policy"
@@ -34,12 +33,29 @@ def upgrade() -> None:
             server_default=sa.false(),
         ),
         sa.Column("current_period_end", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_client_subscriptions_id"), "client_subscriptions", ["id"], unique=False)
-    op.create_index("ix_client_subscriptions_user_id", "client_subscriptions", ["user_id"], unique=False)
+    op.create_index(
+        op.f("ix_client_subscriptions_id"), "client_subscriptions", ["id"], unique=False
+    )
+    op.create_index(
+        "ix_client_subscriptions_user_id",
+        "client_subscriptions",
+        ["user_id"],
+        unique=False,
+    )
     op.create_index(
         "ix_client_subscriptions_stripe_customer_id",
         "client_subscriptions",
@@ -67,10 +83,22 @@ def upgrade() -> None:
         sa.Column("stripe_subscription_id", sa.String(), nullable=True),
         sa.Column("used_for_errand_id", sa.Integer(), nullable=True),
         sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("stripe_session_id", name="uq_stripe_checkout_sessions_stripe_session_id"),
+        sa.UniqueConstraint(
+            "stripe_session_id", name="uq_stripe_checkout_sessions_stripe_session_id"
+        ),
     )
     op.create_index(
         op.f("ix_stripe_checkout_sessions_id"),
@@ -111,16 +139,37 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_stripe_checkout_sessions_used_for_errand_id", table_name="stripe_checkout_sessions")
-    op.drop_index("ix_stripe_checkout_sessions_stripe_subscription_id", table_name="stripe_checkout_sessions")
-    op.drop_index("ix_stripe_checkout_sessions_stripe_customer_id", table_name="stripe_checkout_sessions")
-    op.drop_index("ix_stripe_checkout_sessions_user_id", table_name="stripe_checkout_sessions")
-    op.drop_index("ix_stripe_checkout_sessions_stripe_session_id", table_name="stripe_checkout_sessions")
-    op.drop_index(op.f("ix_stripe_checkout_sessions_id"), table_name="stripe_checkout_sessions")
+    op.drop_index(
+        "ix_stripe_checkout_sessions_used_for_errand_id",
+        table_name="stripe_checkout_sessions",
+    )
+    op.drop_index(
+        "ix_stripe_checkout_sessions_stripe_subscription_id",
+        table_name="stripe_checkout_sessions",
+    )
+    op.drop_index(
+        "ix_stripe_checkout_sessions_stripe_customer_id",
+        table_name="stripe_checkout_sessions",
+    )
+    op.drop_index(
+        "ix_stripe_checkout_sessions_user_id", table_name="stripe_checkout_sessions"
+    )
+    op.drop_index(
+        "ix_stripe_checkout_sessions_stripe_session_id",
+        table_name="stripe_checkout_sessions",
+    )
+    op.drop_index(
+        op.f("ix_stripe_checkout_sessions_id"), table_name="stripe_checkout_sessions"
+    )
     op.drop_table("stripe_checkout_sessions")
 
-    op.drop_index("ix_client_subscriptions_stripe_subscription_id", table_name="client_subscriptions")
-    op.drop_index("ix_client_subscriptions_stripe_customer_id", table_name="client_subscriptions")
+    op.drop_index(
+        "ix_client_subscriptions_stripe_subscription_id",
+        table_name="client_subscriptions",
+    )
+    op.drop_index(
+        "ix_client_subscriptions_stripe_customer_id", table_name="client_subscriptions"
+    )
     op.drop_index("ix_client_subscriptions_user_id", table_name="client_subscriptions")
     op.drop_index(op.f("ix_client_subscriptions_id"), table_name="client_subscriptions")
     op.drop_table("client_subscriptions")

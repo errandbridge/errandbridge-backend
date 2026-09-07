@@ -29,14 +29,18 @@ async def main() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
         # Add new columns if the table already existed
-        await conn.execute(text("ALTER TABLE errands ADD COLUMN IF NOT EXISTS pickup_location VARCHAR"))
-        await conn.execute(text("ALTER TABLE errands ADD COLUMN IF NOT EXISTS dropoff_location VARCHAR"))
+        await conn.execute(
+            text("ALTER TABLE errands ADD COLUMN IF NOT EXISTS pickup_location VARCHAR")
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE errands ADD COLUMN IF NOT EXISTS dropoff_location VARCHAR"
+            )
+        )
 
         # Ensure the users table exists even if create_all didn't run for some reason.
         # (CREATE TABLE IF NOT EXISTS is supported by Postgres.)
-        await conn.execute(
-            text(
-                """
+        await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS users (
                     id SERIAL PRIMARY KEY,
                     email VARCHAR NOT NULL UNIQUE,
@@ -51,23 +55,37 @@ async def main() -> None:
                     email_otp_attempts INTEGER NOT NULL DEFAULT 0,
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
-                """
-            )
-        )
+                """))
 
         # Add new columns if the users table already existed
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR"))
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR"))
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR"))
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR")
+        )
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR")
+        )
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR")
+        )
         await conn.execute(
             text(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_email_verified BOOLEAN NOT NULL DEFAULT FALSE"
             )
         )
 
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_otp_hash VARCHAR"))
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_otp_expires_at BIGINT"))
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_otp_last_sent_at BIGINT"))
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_otp_hash VARCHAR")
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_otp_expires_at BIGINT"
+            )
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_otp_last_sent_at BIGINT"
+            )
+        )
         await conn.execute(
             text(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_otp_attempts INTEGER NOT NULL DEFAULT 0"
@@ -75,7 +93,9 @@ async def main() -> None:
         )
 
         # Helpful indexes (create_all should do this, but keep it idempotent).
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_email ON users (email)"))
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_users_email ON users (email)")
+        )
 
 
 if __name__ == "__main__":

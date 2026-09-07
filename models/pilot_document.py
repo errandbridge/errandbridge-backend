@@ -13,7 +13,9 @@ class PilotDocument(Base):
     stored_filename = Column(String, nullable=False, unique=True)
     content_type = Column(String, nullable=True)
     size_bytes = Column(Integer, nullable=False, default=0)
-    status = Column(String, nullable=False, default="pending")  # pending | approved | rejected
+    status = Column(
+        String, nullable=False, default="pending"
+    )  # pending | approved | rejected
     review_note = Column(String, nullable=True)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
     reviewed_by_user_id = Column(Integer, nullable=True)

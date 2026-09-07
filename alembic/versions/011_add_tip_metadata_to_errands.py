@@ -9,7 +9,6 @@ Create Date: 2026-04-01
 from alembic import op
 import sqlalchemy as sa
 
-
 # revision identifiers, used by Alembic.
 revision = "011_add_tip_metadata"
 down_revision = "010_add_promo_codes"

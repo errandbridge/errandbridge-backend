@@ -8,7 +8,7 @@ import hashlib
 
 from database import get_db
 from models import AnalyticsVisit
-from metrics_admin import record_visit
+from app.metrics.metrics_admin import record_visit
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -118,16 +118,19 @@ async def track_visit(
     if ip and "," in ip:
         ip = ip.split(",", 1)[0].strip()
 
-    country_raw = _first_header(
-        headers,
-        "cloudfront-viewer-country",
-        "cf-ipcountry",
-        # Common vendor-specific geo headers (best-effort; may not be present).
-        "x-vercel-ip-country",
-        "fastly-client-country",
-        "x-country-code",
-        "x-geo-country",
-    ) or payload.country
+    country_raw = (
+        _first_header(
+            headers,
+            "cloudfront-viewer-country",
+            "cf-ipcountry",
+            # Common vendor-specific geo headers (best-effort; may not be present).
+            "x-vercel-ip-country",
+            "fastly-client-country",
+            "x-country-code",
+            "x-geo-country",
+        )
+        or payload.country
+    )
     country = _normalize_country(country_raw)
     region = _normalize_location_value(
         _first_header(

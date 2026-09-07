@@ -3,7 +3,18 @@ Pilot Profile Settings Routes
 Handles pilot profile updates: personal info, address, vehicle details
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Header, File, UploadFile, Form, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+    Body,
+    Header,
+    File,
+    UploadFile,
+    Form,
+    Query,
+)
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
@@ -39,7 +50,9 @@ PROFILE_UPLOAD_DIR = BASE_UPLOAD_DIR / "profiles"
 try:
     PROFILE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 except OSError as e:
-    logger.warning(f"Could not create profile upload directory (serverless environment?): {e}")
+    logger.warning(
+        f"Could not create profile upload directory (serverless environment?): {e}"
+    )
 
 
 class AddressUpdate(BaseModel):
@@ -78,7 +91,8 @@ def _pilot_has_bike(user: User) -> bool:
     return bool(
         getattr(user, "hasBike", False)
         or getattr(user, "has_bike", False)
-        or vehicle_type in {"bike", "bike_support", "bicycle", "motorbike", "motorcycle", "scooter"}
+        or vehicle_type
+        in {"bike", "bike_support", "bicycle", "motorbike", "motorcycle", "scooter"}
     )
 
 
@@ -124,7 +138,9 @@ def _serialize_profile(user: User) -> dict:
         "phone": user.phone,
         "is_email_verified": bool(user.is_email_verified),
         "id_verification_status": getattr(user, "id_verification_status", "pending"),
-        "address_verification_status": getattr(user, "address_verification_status", "pending"),
+        "address_verification_status": getattr(
+            user, "address_verification_status", "pending"
+        ),
         "date_of_birth": user.date_of_birth.isoformat() if user.date_of_birth else None,
         "profile_image_url": getattr(user, "profile_image_url", None),
         "street_address": getattr(user, "street_address", None),
@@ -158,22 +174,33 @@ def _extract_bearer(auth_header: Optional[str]) -> Optional[str]:
     return None
 
 
-async def _get_current_user(authorization: Optional[str] = Header(default=None), db: AsyncSession = Depends(get_db)):
+async def _get_current_user(
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+):
     """Get current authenticated user"""
     token = _extract_bearer(authorization)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token"
+        )
 
     user_id = decode_access_token(token)
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
 
     user = await db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
 
     if not getattr(user, "is_pilot", False):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Pilot access required")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Pilot access required"
+        )
 
     return user
 
@@ -191,7 +218,10 @@ async def get_profile(
         raise
     except Exception as e:
         logger.error(f"Error getting profile: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to get profile")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get profile",
+        )
 
 
 @router.put("/availability", response_model=dict)
@@ -269,22 +299,27 @@ async def update_profile(
             # Validate file size (max 5MB)
             content = await profile_image.read()
             if len(content) > 5 * 1024 * 1024:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image too large (max 5MB)")
-            
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Image too large (max 5MB)",
+                )
+
             # Validate file type
             if not profile_image.content_type.startswith("image/"):
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image file")
-            
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image file"
+                )
+
             # Save image
             file_ext = os.path.splitext(profile_image.filename)[1]
             file_name = f"pilot_{user.id}_{datetime.now().timestamp()}{file_ext}"
             file_path = str(PROFILE_UPLOAD_DIR / file_name)
-            
+
             with open(file_path, "wb") as f:
                 f.write(content)
-            
+
             profile_image_url = f"/uploads/profiles/{file_name}"
-        
+
         # Update user
         update_data = {}
         if first_name:
@@ -302,16 +337,14 @@ async def update_profile(
             update_data["profile_image_url"] = None
         elif profile_image_url:
             update_data["profile_image_url"] = profile_image_url
-        
+
         if update_data:
             await db.execute(
-                update(User)
-                .where(User.id == user.id)
-                .values(**update_data)
+                update(User).where(User.id == user.id).values(**update_data)
             )
             await db.commit()
             await db.refresh(user)
-        
+
         return {
             "ok": True,
             "message": "Profile updated successfully",
@@ -322,7 +355,10 @@ async def update_profile(
         raise
     except Exception as e:
         logger.error(f"Error updating profile: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update profile")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update profile",
+        )
 
 
 @router.put("/address", response_model=dict)
@@ -334,27 +370,23 @@ async def update_address(
     """Update pilot address information"""
     try:
         user = await _get_current_user(authorization, db)
-        
+
         update_data = {
             "street_address": payload.street_address,
             "city": payload.city,
         }
-        
+
         if payload.state_province:
             update_data["state_province"] = payload.state_province
         if payload.postal_code:
             update_data["postal_code"] = payload.postal_code
         if payload.country:
             update_data["country"] = payload.country
-        
-        await db.execute(
-            update(User)
-            .where(User.id == user.id)
-            .values(**update_data)
-        )
+
+        await db.execute(update(User).where(User.id == user.id).values(**update_data))
         await db.commit()
         await db.refresh(user)
-        
+
         return {
             "ok": True,
             "message": "Address updated successfully",
@@ -365,7 +397,10 @@ async def update_address(
         raise
     except Exception as e:
         logger.error(f"Error updating address: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update address")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update address",
+        )
 
 
 @router.put("/vehicle", response_model=dict)
@@ -399,7 +434,7 @@ async def update_vehicle(
             "insurance_expiry",
             insurance_expiry,
         )
-        
+
         update_data = {}
         if resolved_vehicle_type:
             update_data["vehicle_type"] = resolved_vehicle_type
@@ -414,17 +449,17 @@ async def update_vehicle(
         if resolved_insurance_provider:
             update_data["insurance_provider"] = resolved_insurance_provider
         if resolved_insurance_expiry:
-            update_data["insurance_expiry"] = datetime.fromisoformat(resolved_insurance_expiry).date()
-        
+            update_data["insurance_expiry"] = datetime.fromisoformat(
+                resolved_insurance_expiry
+            ).date()
+
         if update_data:
             await db.execute(
-                update(User)
-                .where(User.id == user.id)
-                .values(**update_data)
+                update(User).where(User.id == user.id).values(**update_data)
             )
             await db.commit()
             await db.refresh(user)
-        
+
         return {
             "ok": True,
             "message": "Vehicle information updated successfully",
@@ -435,7 +470,10 @@ async def update_vehicle(
         raise
     except Exception as e:
         logger.error(f"Error updating vehicle: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update vehicle")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update vehicle",
+        )
 
 
 @router.post("/change-password", response_model=dict)
@@ -449,7 +487,7 @@ async def change_password(
     """Change pilot password"""
     try:
         from auth import hash_password, verify_password
-        
+
         user = await _get_current_user(authorization, db)
         resolved_current_password = (
             payload.current_password if payload else current_password
@@ -461,15 +499,21 @@ async def change_password(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="current_password and new_password are required",
             )
-        
+
         # Verify current password
         if not verify_password(resolved_current_password, user.password_hash):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
-        
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Current password is incorrect",
+            )
+
         # Validate new password
         if len(resolved_new_password) < 8:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters")
-        
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must be at least 8 characters",
+            )
+
         # Hash and save new password
         new_password_hash = hash_password(resolved_new_password)
         await db.execute(
@@ -478,7 +522,7 @@ async def change_password(
             .values(password_hash=new_password_hash)
         )
         await db.commit()
-        
+
         return {
             "ok": True,
             "message": "Password changed successfully",
@@ -487,7 +531,10 @@ async def change_password(
         raise
     except Exception as e:
         logger.error(f"Error changing password: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to change password")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to change password",
+        )
 
 
 @router.get("/stats", response_model=dict)
@@ -499,41 +546,39 @@ async def get_pilot_stats(
     try:
         from models import Errand
         from sqlalchemy import func
-        
+
         user = await _get_current_user(authorization, db)
-        
+
         # Count only genuinely completed errands for pilot performance/tier stats.
         total_result = await db.execute(
             select(func.count(Errand.id)).where(
-                (Errand.pilot_id == user.id) &
-                (Errand.status == "completed")
+                (Errand.pilot_id == user.id) & (Errand.status == "completed")
             )
         )
         total_completed_errands = total_result.scalar() or 0
-        
+
         # Get completed today
         today = datetime.now().date()
         today_result = await db.execute(
             select(func.count(Errand.id)).where(
-                (Errand.pilot_id == user.id) &
-                (Errand.status == "completed") &
-                (func.date(Errand.completed_at) == today)
+                (Errand.pilot_id == user.id)
+                & (Errand.status == "completed")
+                & (func.date(Errand.completed_at) == today)
             )
         )
         completed_today = today_result.scalar() or 0
-        
+
         # Get earnings (using tip as earnings for now)
         earnings_result = await db.execute(
             select(func.sum(Errand.tip)).where(
-                (Errand.pilot_id == user.id) &
-                (Errand.status == "completed")
+                (Errand.pilot_id == user.id) & (Errand.status == "completed")
             )
         )
         earnings = float(earnings_result.scalar() or 0)
-        
+
         # Get rating
         rating = getattr(user, "rating", 4.8)
-        
+
         return {
             # Keep both keys during rollout so older clients stay in sync.
             "totalDeliveries": total_completed_errands,
@@ -546,4 +591,7 @@ async def get_pilot_stats(
         raise
     except Exception as e:
         logger.error(f"Error getting pilot stats: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to get stats")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get stats",
+        )

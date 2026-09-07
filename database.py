@@ -12,6 +12,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 
+
 def _running_in_docker_filesystem() -> bool:
     """Best-effort detection of whether we're running inside a Docker container."""
     try:
@@ -84,7 +85,9 @@ if not _running_in_aws:
 # Keep defaults aligned with docker-compose.yml for a smooth local/dev experience.
 # (docker-compose uses POSTGRES_USER=postgres, POSTGRES_PASSWORD=postgres, port 5433->5432)
 _DEFAULT_DOCKER_DB_URL = "postgresql+asyncpg://postgres:postgres@db:5432/errandbridge"
-_DEFAULT_LOCAL_DB_URL = "postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/errandbridge"
+_DEFAULT_LOCAL_DB_URL = (
+    "postgresql+asyncpg://postgres:postgres@127.0.0.1:5433/errandbridge"
+)
 
 # Get DATABASE_URL from environment, prefer explicit DATABASE_URL over defaults
 
@@ -250,7 +253,9 @@ def _create_ssl_context_for_database_url(database_url: str) -> ssl.SSLContext:
 
     ssl_context = ssl.create_default_context()
 
-    bundle_path = (os.getenv("RDS_SSL_BUNDLE_PATH") or "/app/rds-global-bundle.pem").strip()
+    bundle_path = (
+        os.getenv("RDS_SSL_BUNDLE_PATH") or "/app/rds-global-bundle.pem"
+    ).strip()
     if bundle_path:
         try:
             if pathlib.Path(bundle_path).exists():
@@ -261,7 +266,9 @@ def _create_ssl_context_for_database_url(database_url: str) -> ssl.SSLContext:
                 flush=True,
             )
 
-    ssl_context.check_hostname = os.getenv("DB_SSL_CHECK_HOSTNAME", "1").strip().lower() not in (
+    ssl_context.check_hostname = os.getenv(
+        "DB_SSL_CHECK_HOSTNAME", "1"
+    ).strip().lower() not in (
         "0",
         "false",
         "no",
@@ -364,7 +371,9 @@ def _select_db_user() -> str | None:
 
     payload = _select_db_secret_payload()
     if payload:
-        candidate = payload.get("username") or payload.get("user") or payload.get("db_user")
+        candidate = (
+            payload.get("username") or payload.get("user") or payload.get("db_user")
+        )
         if isinstance(candidate, str) and candidate.strip():
             return candidate.strip()
 
@@ -449,7 +458,9 @@ def _select_db_name() -> str | None:
 
     payload = _select_db_secret_payload()
     if payload:
-        candidate = payload.get("dbname") or payload.get("database") or payload.get("db")
+        candidate = (
+            payload.get("dbname") or payload.get("database") or payload.get("db")
+        )
         if isinstance(candidate, str) and candidate.strip():
             return candidate.strip()
 
@@ -497,7 +508,10 @@ if DATABASE_URL and _db_password:
     DATABASE_URL = DATABASE_URL.replace("${DB_PASSWORD}", encoded_password)
     DATABASE_URL = DATABASE_URL.replace("$DB_PASSWORD", encoded_password)
 elif DATABASE_URL and "${DB_PASSWORD}" in DATABASE_URL:
-    print("[DB CONFIG] DATABASE_URL contains ${DB_PASSWORD} but no password env var was found", flush=True)
+    print(
+        "[DB CONFIG] DATABASE_URL contains ${DB_PASSWORD} but no password env var was found",
+        flush=True,
+    )
 
 # Support ECS-style placeholders for host/port/dbname as well.
 if DATABASE_URL and _db_host:
@@ -546,7 +560,10 @@ if DATABASE_URL and "<RDS_PASSWORD>" in DATABASE_URL:
         encoded_password = _encode_db_password(fallback_password)
         DATABASE_URL = DATABASE_URL.replace("<RDS_PASSWORD>", encoded_password)
     else:
-        print("[DB CONFIG] DATABASE_URL contains <RDS_PASSWORD> but no password env var was found", flush=True)
+        print(
+            "[DB CONFIG] DATABASE_URL contains <RDS_PASSWORD> but no password env var was found",
+            flush=True,
+        )
 
 # Build DATABASE_URL from POSTGRES_* if not explicitly provided.
 if not DATABASE_URL:
@@ -557,23 +574,21 @@ if not DATABASE_URL:
     _pg_password = _select_db_password()
     if _pg_user and _pg_host and _pg_port and _pg_db and _pg_password:
         encoded_password = _encode_db_password(_pg_password)
-        DATABASE_URL = (
-            f"postgresql+asyncpg://{_pg_user}:{encoded_password}@{_pg_host}:{_pg_port}/{_pg_db}"
-        )
+        DATABASE_URL = f"postgresql+asyncpg://{_pg_user}:{encoded_password}@{_pg_host}:{_pg_port}/{_pg_db}"
 
 # Build DATABASE_URL from a full secret JSON if not provided.
 if not DATABASE_URL:
     payload = _select_db_secret_payload()
     if payload:
         secret_user = (
-            payload.get("username")
-            or payload.get("user")
-            or payload.get("db_user")
+            payload.get("username") or payload.get("user") or payload.get("db_user")
         )
         secret_password = payload.get("password") or payload.get("db_password")
         secret_host = payload.get("host") or payload.get("hostname")
         secret_port = payload.get("port")
-        secret_db = payload.get("dbname") or payload.get("database") or payload.get("db")
+        secret_db = (
+            payload.get("dbname") or payload.get("database") or payload.get("db")
+        )
 
         if isinstance(secret_port, str):
             try:
@@ -581,7 +596,12 @@ if not DATABASE_URL:
             except Exception:
                 secret_port = None
 
-        if isinstance(secret_user, str) and isinstance(secret_password, str) and isinstance(secret_host, str) and isinstance(secret_db, str):
+        if (
+            isinstance(secret_user, str)
+            and isinstance(secret_password, str)
+            and isinstance(secret_host, str)
+            and isinstance(secret_db, str)
+        ):
             secret_user = secret_user.strip()
             secret_password = secret_password.strip()
             secret_host = secret_host.strip()
@@ -589,7 +609,9 @@ if not DATABASE_URL:
 
             if secret_user and secret_password and secret_host and secret_db:
                 encoded_password = _encode_db_password(secret_password)
-                port_part = f":{int(secret_port)}" if isinstance(secret_port, int) else ""
+                port_part = (
+                    f":{int(secret_port)}" if isinstance(secret_port, int) else ""
+                )
                 DATABASE_URL = f"postgresql+asyncpg://{secret_user}:{encoded_password}@{secret_host}{port_part}/{secret_db}"
 
 # If no explicit DATABASE_URL, use environment-based defaults
@@ -602,7 +624,9 @@ if DATABASE_URL is None:
 
 
 IS_ALEMBIC = os.getenv("ALEMBIC", "0") == "1"
-DATABASE_URL = _normalize_database_url(DATABASE_URL, mode=("sync" if IS_ALEMBIC else "async"))
+DATABASE_URL = _normalize_database_url(
+    DATABASE_URL, mode=("sync" if IS_ALEMBIC else "async")
+)
 
 
 # If we're on the host (not in Docker), rewrite docker-compose service hostname to localhost.
@@ -627,15 +651,25 @@ if is_local:
 else:
     # Production/RDS: Enforce SSL
     ssl_context = _create_ssl_context_for_database_url(DATABASE_URL)
-    bundle_path = (os.getenv("RDS_SSL_BUNDLE_PATH") or "/app/rds-global-bundle.pem").strip()
+    bundle_path = (
+        os.getenv("RDS_SSL_BUNDLE_PATH") or "/app/rds-global-bundle.pem"
+    ).strip()
 
     print(f"[DB CONFIG] DATABASE_URL={_redact_database_url(DATABASE_URL)}")
     print(
         "[DB CONFIG] SSL context bundle:",
-        bundle_path if bundle_path and pathlib.Path(bundle_path).exists() else "(system)",
+        (
+            bundle_path
+            if bundle_path and pathlib.Path(bundle_path).exists()
+            else "(system)"
+        ),
         flush=True,
     )
-    print("[DB CONFIG] SSL hostname check:", bool(getattr(ssl_context, "check_hostname", False)), flush=True)
+    print(
+        "[DB CONFIG] SSL hostname check:",
+        bool(getattr(ssl_context, "check_hostname", False)),
+        flush=True,
+    )
     connect_args = {"ssl": ssl_context}
 
 if IS_ALEMBIC:

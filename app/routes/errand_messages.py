@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from admin_utils import require_admin_user
+from app.utils.admin_utils import require_admin_user
 from auth import decode_access_token
 from database import get_db
 from models import Errand, ErrandMessage, User
@@ -114,7 +114,9 @@ async def _is_admin(db: AsyncSession, user: User) -> bool:
         return False
 
 
-async def _require_participant(db: AsyncSession, *, errand_id: int, user: User) -> Errand:
+async def _require_participant(
+    db: AsyncSession, *, errand_id: int, user: User
+) -> Errand:
     errand = await db.get(Errand, int(errand_id))
     if not errand:
         raise HTTPException(status_code=404, detail="Errand not found")
@@ -220,7 +222,10 @@ async def send_errand_message(
 
     # Server-side enforcement: once an errand is terminal, the chat becomes read-only.
     status_key = _normalize_status(getattr(errand, "status", None))
-    if status_key in {"completed", "cancelled"} or getattr(errand, "completed_at", None) is not None:
+    if (
+        status_key in {"completed", "cancelled"}
+        or getattr(errand, "completed_at", None) is not None
+    ):
         raise HTTPException(
             status_code=409,
             detail="Chat is locked for this errand.",
@@ -235,8 +240,16 @@ async def send_errand_message(
     await db.commit()
     await db.refresh(msg)
 
-    sender_type = "pilot" if errand.pilot_id and int(user.id) == int(errand.pilot_id) else "customer"
-    sender_name = " ".join([p for p in [user.first_name, user.last_name] if p]) or user.email or sender_type.title()
+    sender_type = (
+        "pilot"
+        if errand.pilot_id and int(user.id) == int(errand.pilot_id)
+        else "customer"
+    )
+    sender_name = (
+        " ".join([p for p in [user.first_name, user.last_name] if p])
+        or user.email
+        or sender_type.title()
+    )
 
     return ErrandMessageOut(
         id=int(msg.id),
