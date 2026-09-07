@@ -2052,8 +2052,19 @@ class Mutation:
         
         user = await _get_auth_user_by_identifier(session, identifier)
         
-        if not user or not verify_password(input.password, user.password_hash):
-            raise ValueError("Invalid email or password")
+        if not user:
+            raise ValueError("Invalid email or expired code")
+            
+        try:
+            from routes_auth import _check_otp, _clear_otp
+            _check_otp(user, input.password)
+            _clear_otp(user)
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+        except Exception as e:
+            print(f"[AUTH] Error verifying OTP for {identifier}: {e}", flush=True)
+            raise ValueError("Invalid or expired code")
         
         if not disable_email_confirmation and not user.is_email_verified:
             raise ValueError("Email not verified - please verify your email first")

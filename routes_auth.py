@@ -117,6 +117,11 @@ class SignupRequest(BaseModel):
     otp_delivery_mode: OtpMode = Field(default=DEFAULT_OTP_MODE)
 
 
+class OtpSendRequestSimple(BaseModel):
+    email: str = Field(..., min_length=1)
+    role: Optional[str] = Field(default="client")
+
+
 class LoginRequest(BaseModel):
     email: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
@@ -1926,6 +1931,22 @@ async def swagger_login(form_data: OAuth2PasswordRequestForm = Depends(), db: As
     return {"access_token": auth_response.token, "token_type": "bearer"}
 
 
+@router.post("/otp/request")
+async def otp_request(payload: OtpSendRequestSimple, db: AsyncSession = Depends(get_db)):
+    identifier = payload.email.strip()
+    try:
+        user = await _get_user_by_identifier(db, identifier)
+    except Exception:
+        user = None
+    
+    if not user:
+        # Prevent user enumeration
+        return {"success": True, "message": "If the email is registered, an OTP has been sent."}
+    
+    await _send_otp_for_user(db, user, purpose="login", channel="email", mode="code")
+    return {"success": True, "message": "OTP sent successfully."}
+
+
 @router.post("/login", response_model=AuthResponse)
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> AuthResponse:
     disable_email_confirmation = is_email_confirmation_disabled()
@@ -1941,17 +1962,18 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Au
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
-    if not user.password_hash:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-
+    # Check OTP instead of password
     try:
-        password_ok = verify_password(payload.password, user.password_hash)
+        _check_otp(user, payload.password)
     except Exception as e:
-        print(f"[AUTH] Error verifying password for {payload.email}: {e}", flush=True)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+        print(f"[AUTH] Error verifying OTP for {payload.email}: {e}", flush=True)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired code")
 
-    if not password_ok:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+    # Clear OTP after successful login
+    _clear_otp(user)
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
 
     # Block login for unverified users (should always pass now)
     if not disable_email_confirmation and not user.is_email_verified:
