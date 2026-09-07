@@ -196,19 +196,23 @@ class MeResponse(BaseModel):
     must_change_password: bool = False
 
 
-class ConfirmRequest(BaseModel):
+class SignupRequest(BaseModel):
     email: str = Field(..., min_length=1)
-    code: str = Field(..., min_length=4, max_length=10)
-
-
-class ConfirmResponse(BaseModel):
-    ok: bool = True
-
-
-class ResendRequest(BaseModel):
-    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=8)
+    first_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    last_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    phone: Optional[str] = Field(default=None, min_length=3, max_length=32)
+    role: Optional[str] = Field(default="client")
+    allow_pilot_signup: bool = Field(default=False)
     otp_delivery_channel: OtpChannel = Field(default=DEFAULT_OTP_CHANNEL)
     otp_delivery_mode: OtpMode = Field(default=DEFAULT_OTP_MODE)
+    id_collected_offline: bool = False
+    address_line1: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    address_line2: Optional[str] = Field(default=None, max_length=200)
+    city: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    state: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    postal_code: Optional[str] = Field(default=None, min_length=1, max_length=30)
+    country: Optional[str] = Field(default=None, min_length=2, max_length=80)
 
 
 class PasswordResetStartRequest(BaseModel):
@@ -2288,75 +2292,125 @@ async def update_profile(
     )
 
 
-@router.post("/confirm", response_model=ConfirmResponse)
-async def confirm_email(
-    payload: ConfirmRequest, db: AsyncSession = Depends(get_db)
-) -> ConfirmResponse:
+@router.post("/signup", response_model=AuthResponse)
+async def signup(
+    payload: SignupRequest, db: AsyncSession = Depends(get_db)
+) -> AuthResponse:
     disable_email_confirmation = is_email_confirmation_disabled()
-    user = await _get_user_by_identifier(db, payload.email)
-    if not user:
-        # Don't leak which emails exist.
+    role = _normalize_role(payload.role)
+    email, normalized_phone, identifier_kind = _resolve_signup_identity(payload, role)
+
+    print(f"[SIGNUP] Signup attempt for: {email}", flush=True)
+    try:
+        existing = (
+            await _get_user_by_phone(db, normalized_phone)
+            if identifier_kind == "phone"
+            else await _get_user_by_email(db, email)
+        )
+        phone_owner = (
+            await _get_user_by_phone(db, normalized_phone) if normalized_phone else None
+        )
+    except Exception as e:
+        _raise_db_unavailable(e)
+
+    if phone_owner and (not existing or phone_owner.id != existing.id):
+        if phone_owner.is_pilot != (role == "pilot"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Phone number already registered for a different account type",
+            )
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Phone number already registered",
         )
 
-    if disable_email_confirmation:
-        if not user.is_email_verified:
-            user.is_email_verified = True
-            user.email_otp_hash = None
-            user.email_otp_expires_at = None
-            user.email_otp_last_sent_at = None
-            user.email_otp_attempts = 0
-            await db.commit()
-        return ConfirmResponse(ok=True)
+    first_name = (payload.first_name or "").strip()
+    last_name = (payload.last_name or "").strip()
+    if not first_name or not last_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="First and last name are required for signup.",
+        )
 
-    if user.is_email_verified:
-        return ConfirmResponse(ok=True)
+    if existing:
+        if existing.is_pilot != (role == "pilot"):
+            conflict_label = "Phone number" if identifier_kind == "phone" else "Email"
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{conflict_label} already registered for a different account type",
+            )
+        if not existing.is_email_verified:
+            if disable_email_confirmation:
+                existing.is_email_verified = True
+                existing.email_otp_hash = None
+                existing.email_otp_expires_at = None
+                existing.email_otp_last_sent_at = None
+                existing.email_otp_attempts = 0
+                await db.commit()
+                return _build_auth_response(existing, is_email_verified=True)
+            await _send_otp_for_user(
+                db,
+                existing,
+                purpose="signup confirmation",
+                channel=(
+                    "sms"
+                    if identifier_kind == "phone"
+                    else payload.otp_delivery_channel
+                ),
+                mode=payload.otp_delivery_mode,
+                smoke_env="SMOKE_OTP_CODE",
+            )
+            return _build_auth_response(existing)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Phone number already registered"
+                if identifier_kind == "phone"
+                else "Email already registered"
+            ),
+        )
 
-    try:
-        _check_otp(user, payload.code)
-    except HTTPException as e:
-        if e.detail == "Invalid code":
-            await db.commit()
-        raise
-
-    user.is_email_verified = True
-    user.email_otp_hash = None
-    user.email_otp_expires_at = None
-    user.email_otp_last_sent_at = None
-    user.email_otp_attempts = 0
-    await db.commit()
-
-    return ConfirmResponse(ok=True)
-
-
-@router.post("/resend-confirmation", response_model=ConfirmResponse)
-async def resend_confirmation(
-    payload: ResendRequest, db: AsyncSession = Depends(get_db)
-) -> ConfirmResponse:
-    disable_email_confirmation = is_email_confirmation_disabled()
-    if disable_email_confirmation:
-        return ConfirmResponse(ok=True)
-    user = await _get_user_by_identifier(db, payload.email)
-    # Always return OK (avoid user enumeration)
-    if not user or user.is_email_verified:
-        return ConfirmResponse(ok=True)
-
-    last_sent = int(user.email_otp_last_sent_at or 0)
-    if now_ts() - last_sent < 30:
-        # Too soon
-        return ConfirmResponse(ok=True)
-
-    await _send_otp_for_user(
-        db,
-        user,
-        purpose="confirmation",
-        channel=payload.otp_delivery_channel,
-        mode=payload.otp_delivery_mode,
-        smoke_env="SMOKE_OTP_CODE",
+    user = User(
+        email=email,
+        password_hash=hash_password(payload.password),
+        first_name=first_name,
+        last_name=last_name,
+        phone=normalized_phone,
+        id_verification_method=("offline" if payload.id_collected_offline else None),
+        id_verification_status=(
+            "pending" if payload.id_collected_offline else "pending"
+        ),
+        address_line1=payload.address_line1,
+        address_line2=payload.address_line2,
+        city=payload.city,
+        state=payload.state,
+        postal_code=payload.postal_code,
+        country=payload.country,
+        is_pilot=(role == "pilot"),
+        must_change_password=False,
     )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
 
-    return ConfirmResponse(ok=True)
+    if disable_email_confirmation:
+        user.is_email_verified = True
+        await db.commit()
+        return _build_auth_response(user, is_email_verified=True)
+    else:
+        await _send_otp_for_user(
+            db,
+            user,
+            purpose="signup confirmation",
+            channel=(
+                "sms"
+                if identifier_kind == "phone"
+                else payload.otp_delivery_channel
+            ),
+            mode=payload.otp_delivery_mode,
+            smoke_env="SMOKE_OTP_CODE",
+        )
+        return _build_auth_response(user)
 
 
 @router.post("/password-reset/start", response_model=PasswordResetStartResponse)
