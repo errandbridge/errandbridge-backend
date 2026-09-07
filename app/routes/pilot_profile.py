@@ -36,11 +36,14 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_UPLOAD_DIR = _BACKEND_ROOT / "uploads"
 BASE_UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(_DEFAULT_UPLOAD_DIR)))
 PROFILE_UPLOAD_DIR = BASE_UPLOAD_DIR / "profiles"
-PROFILE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    PROFILE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+except OSError as e:
+    logger.warning(f"Could not create profile upload directory (serverless environment?): {e}")
 
 
 class AddressUpdate(BaseModel):
-    street_address: str
+    street_address: Optional[str] = None
     city: str
     state_province: Optional[str] = None
     postal_code: Optional[str] = None
