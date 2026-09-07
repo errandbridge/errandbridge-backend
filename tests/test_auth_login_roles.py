@@ -19,7 +19,7 @@ class DummyUser:
 
 
 @pytest.mark.asyncio
-async def test_rest_login_rejects_pilot_account_in_client_mode(monkeypatch):
+async def test_rest_login_allows_pilot_account_in_client_mode(monkeypatch):
     pilot_user = DummyUser("pilot@example.com", is_pilot=True)
 
     async def fake_get_user_by_email(db, email: str):
@@ -28,19 +28,21 @@ async def test_rest_login_rejects_pilot_account_in_client_mode(monkeypatch):
 
     monkeypatch.setattr(routes_auth, "_get_user_by_email", fake_get_user_by_email)
     monkeypatch.setattr(routes_auth, "verify_password", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(routes_auth, "create_access_token", lambda user_id: f"token-{user_id}")
+    monkeypatch.setattr(routes_auth, "create_refresh_token", lambda user_id: f"refresh-{user_id}")
+    monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
 
-    with pytest.raises(HTTPException) as exc_info:
-        await routes_auth.login(
-            routes_auth.LoginRequest(
-                email="pilot@example.com",
-                password="password123",
-                role="client",
-            ),
-            db=object(),
-        )
+    response = await routes_auth.login(
+        routes_auth.LoginRequest(
+            email="pilot@example.com",
+            password="password123",
+            role="client",
+        ),
+        db=object(),
+    )
 
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.detail == "Pilot accounts must sign in via Pilot mode"
+    assert response.access_token == "token-101"
+    assert response.refresh_token == "refresh-101"
 
 
 @pytest.mark.asyncio
@@ -121,7 +123,7 @@ async def test_refresh_session_exchanges_refresh_token(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_google_auth_rejects_pilot_signup_with_existing_client_email(monkeypatch):
+async def test_google_auth_allows_pilot_signup_with_existing_client_email(monkeypatch):
     client_user = DummyUser("client@example.com", is_pilot=False)
 
     monkeypatch.setattr(
@@ -139,16 +141,25 @@ async def test_google_auth_rejects_pilot_signup_with_existing_client_email(monke
         return client_user
 
     monkeypatch.setattr(routes_auth, "_get_user_by_email", fake_get_user_by_email)
+    monkeypatch.setattr(routes_auth, "create_access_token", lambda user_id: f"token-{user_id}")
+    monkeypatch.setattr(routes_auth, "create_refresh_token", lambda user_id: f"refresh-{user_id}")
+    monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
 
-    with pytest.raises(HTTPException) as exc_info:
-        await routes_auth.google_auth(
-            routes_auth.GoogleAuthRequest(
-                credential="x" * 20,
-                role="pilot",
-                allow_pilot_signup=True,
-            ),
-            db=object(),
-        )
+    class MockDB:
+        async def commit(self):
+            pass
+        async def refresh(self, obj):
+            pass
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == "Email already registered for a different account type"
+    response = await routes_auth.google_auth(
+        routes_auth.GoogleAuthRequest(
+            credential="x" * 20,
+            role="pilot",
+            allow_pilot_signup=True,
+        ),
+        db=MockDB(),
+    )
+
+    assert response.access_token == "token-101"
+    assert response.refresh_token == "refresh-101"
+    assert client_user.is_pilot is True

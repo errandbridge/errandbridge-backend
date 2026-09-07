@@ -39,7 +39,10 @@ UPLOAD_DIR = os.path.join(
     "uploads",
     "profiles",
 )
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+try:
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+except OSError as e:
+    print(f"Could not create user profile upload directory (serverless environment?): {e}")
 
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 

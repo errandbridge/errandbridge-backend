@@ -158,6 +158,7 @@ _STATUS_ALIASES = {
     "in_progress": "assigned",
     "in-progress": "assigned",
     "active": "assigned",
+    "accepted": "assigned",
     "picked up": "picked_up",
     "picked-up": "picked_up",
 }
@@ -637,6 +638,15 @@ class UpdateErrandInput:
     pickupTimeSlotStart: Optional[str] = None
     pickupTimeSlotEnd: Optional[str] = None
     pickupTimeSlotDate: Optional[str] = None
+
+
+@strawberry.input
+class PilotUpdateErrandStatusInput:
+    id: int
+    status: str
+    photoUrl: Optional[str] = None
+    signatureUrl: Optional[str] = None
+    completionNotes: Optional[str] = None
 
 
 @strawberry.input
@@ -1291,6 +1301,91 @@ class Mutation:
                 )
         except Exception as e:
             print(f"[notify] graphql status update email failed: {e}")
+        return _to_gql(model)
+    @strawberry.mutation
+    async def pilot_update_errand_status(self, info: Info, input: PilotUpdateErrandStatusInput) -> Errand:
+        session: AsyncSession = info.context["db"]
+        current_user_id = info.context.get("current_user_id")
+        if not current_user_id:
+            raise ValueError("Missing user_id (not logged in)")
+
+        # Verify the user is a pilot
+        user_result = await session.execute(select(User).where(User.id == current_user_id))
+        user = user_result.scalars().first()
+        if not user or not user.is_pilot:
+            raise ValueError("Only pilots can perform this action.")
+
+        # Get the errand
+        errand_result = await session.execute(
+            select(ErrandModel).where(ErrandModel.id == input.id)
+        )
+        model = errand_result.scalars().first()
+        if model is None:
+            raise ValueError("Errand not found")
+
+        previous_status = _normalize_status(model.status)
+        next_status = _normalize_status(input.status)
+
+        if next_status not in _CANONICAL_STATUSES:
+            raise ValueError(
+                "Invalid status. Expected one of: " + ", ".join(_CANONICAL_STATUSES)
+            )
+
+        # Allow assignment if the errand is in a 'submitted' state
+        if next_status == "assigned" and previous_status == "submitted":
+            if model.pilot_id is not None and model.pilot_id != current_user_id:
+                raise ValueError("Errand is already claimed by another pilot.")
+            model.pilot_id = current_user_id
+            from datetime import datetime, timezone
+            model.assigned_at = datetime.now(timezone.utc)
+        elif previous_status != "submitted":
+            # For any transition after assignment, verify this pilot owns it
+            if model.pilot_id != current_user_id:
+                raise ValueError("You are not assigned to this errand.")
+
+        if not _is_valid_transition(previous_status, next_status):
+            raise ValueError(
+                f"Invalid status transition: {previous_status} → {next_status}. "
+                f"Expected next: {_CANONICAL_STATUSES[min(_CANONICAL_STATUSES.index(previous_status) + 1, len(_CANONICAL_STATUSES) - 1)]}"
+            )
+
+        model.status = next_status
+
+        if next_status == "delivered":
+            from datetime import datetime, timezone
+            model.completed_at = datetime.now(timezone.utc)
+            if input.photoUrl is not None:
+                model.photo_url = input.photoUrl
+            if input.signatureUrl is not None:
+                model.signature_url = input.signatureUrl
+            if input.completionNotes is not None:
+                model.completion_notes = input.completionNotes
+
+        # Log event: status change
+        from models import ErrandEvent
+        event = ErrandEvent(
+            errand_id=model.id,
+            event_type="status_change",
+            old_status=previous_status,
+            new_status=next_status,
+            note="Pilot status update",
+            user_id=current_user_id,
+        )
+        session.add(event)
+
+        await session.commit()
+        await session.refresh(model)
+
+        try:
+            await notify_customer_status(
+                session,
+                errand=model,
+                old_status=previous_status,
+                new_status=next_status,
+                trigger="graphql-pilot-status-update",
+            )
+        except Exception as e:
+            print(f"[notify] pilot update status email failed: {e}")
         return _to_gql(model)
 
     @strawberry.mutation
@@ -1965,8 +2060,6 @@ class Mutation:
 
         if role == "pilot" and not user.is_pilot:
             raise ValueError("This account is not registered as a pilot")
-        if role == "client" and user.is_pilot:
-            raise ValueError("Pilot accounts must sign in via Pilot mode")
         
         # Create token
         token = create_access_token(user_id=user.id)
@@ -2027,14 +2120,12 @@ class Mutation:
 
         phone_owner = await _get_auth_user_by_phone(session, normalized_phone) if normalized_phone else None
         if phone_owner and (not existing or phone_owner.id != existing.id):
-            if phone_owner.is_pilot != (role == "pilot"):
-                raise ValueError("Phone number already registered for a different account type")
             raise ValueError("Phone number already registered")
 
         if existing:
             if existing.is_pilot != (role == "pilot"):
                 conflict_label = "Phone number" if identifier_kind == "phone" else "Email"
-                raise ValueError(f"{conflict_label} already registered for a different account type")
+                raise ValueError(f"{conflict_label} already registered")
             # If the account exists but isn't verified, resend OTP for the same email.
             if not existing.is_email_verified:
                 if disable_email_confirmation:
