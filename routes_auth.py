@@ -152,7 +152,7 @@ class OAuthStatusResponse(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str = Field(..., min_length=1)
+    current_password: Optional[str] = None
     new_password: str = Field(..., min_length=8)
 
 
@@ -2152,15 +2152,17 @@ async def change_password(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         )
 
-    # Verify current password
-    if not verify_password(payload.current_password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Current password is incorrect",
-        )
+    # Verify current password if not forced to change
+    if not user.must_change_password:
+        if not payload.current_password or not verify_password(payload.current_password, user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Current password is incorrect or missing",
+            )
 
     # Update to new password
     user.password_hash = hash_password(payload.new_password)
+    user.must_change_password = False
     await db.commit()
 
     return {"ok": True, "message": "Password changed successfully"}
