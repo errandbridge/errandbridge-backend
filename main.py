@@ -336,12 +336,15 @@ def custom_openapi():
     components = openapi_schema.setdefault("components", {})
     security_schemes = components.setdefault("securitySchemes", {})
     security_schemes["BearerAuth"] = {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
+        "type": "oauth2",
+        "flows": {
+            "password": {
+                "tokenUrl": "/auth/swagger-login",
+                "scopes": {}
+            }
+        },
         "description": (
-            "Most authenticated ErrandBridge routes expect a Bearer access token. "
-            "Use Swagger's Authorize button with the token from login/signup. "
+            "Authenticate with your email (as username) and password. "
             "Auth responses also include user_uuid/userUuid as a stable public user identifier for data mapping; "
             "that UUID is not a secret and does not replace Bearer authentication."
         ),
@@ -676,8 +679,13 @@ class ErrandCreateRequest(BaseModel):
     title: str
     description: Optional[str] = None
     location: Optional[str] = None
-    pickup_location: Optional[str] = None
-    dropoff_location: Optional[str] = None
+    pickup_location: Optional[str] = Field(default=None, alias="pickupLocation")
+    dropoff_location: Optional[str] = Field(default=None, alias="dropoffLocation")
+    pickup_contact_name: Optional[str] = Field(default=None, alias="pickupContactName")
+    pickup_contact_phone: Optional[str] = Field(default=None, alias="pickupContactPhone")
+    dropoff_contact_name: Optional[str] = Field(default=None, alias="dropoffContactName")
+    dropoff_contact_phone: Optional[str] = Field(default=None, alias="dropoffContactPhone")
+    distance_km: Optional[float] = Field(default=None, alias="distanceKm")
     note: Optional[str] = None
     category: Optional[str] = None
     estimated_time: Optional[str] = None
@@ -690,19 +698,28 @@ class ErrandCreateRequest(BaseModel):
 
 class ErrandResponse(BaseModel):
     id: int
-    reference_number: str
+    reference_number: str = Field(..., alias="referenceNumber")
     title: str
     description: Optional[str] = None
-    pickup_location: Optional[str] = None
-    dropoff_location: Optional[str] = None
+    pickup_location: Optional[str] = Field(default=None, alias="pickupLocation")
+    dropoff_location: Optional[str] = Field(default=None, alias="dropoffLocation")
+    pickup_contact_name: Optional[str] = Field(default=None, alias="pickupContactName")
+    pickup_contact_phone: Optional[str] = Field(default=None, alias="pickupContactPhone")
+    dropoff_contact_name: Optional[str] = Field(default=None, alias="dropoffContactName")
+    dropoff_contact_phone: Optional[str] = Field(default=None, alias="dropoffContactPhone")
+    assigned_runner_name: Optional[str] = Field(default=None, alias="assignedRunnerName")
     note: Optional[str] = None
     status: str
-    user_id: int
-    pilot_id: Optional[int] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    user_id: int = Field(..., alias="userId")
+    pilot_id: Optional[int] = Field(default=None, alias="pilotId")
+    created_at: Optional[datetime] = Field(default=None, alias="createdAt")
+    updated_at: Optional[datetime] = Field(default=None, alias="updatedAt")
+    started_at: Optional[datetime] = Field(default=None, alias="startedAt")
+    completed_at: Optional[datetime] = Field(default=None, alias="completedAt")
+    pickup_time_slot_date: Optional[str] = Field(default=None, alias="pickupTimeSlotDate")
+
+    class Config:
+        allow_population_by_field_name = True
 
 
 # Initialize OpenAI client
@@ -1151,12 +1168,30 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
                 ):
                     raise HTTPException(status_code=400, detail="Payment not verified")
 
+        clean_title = (payload.title or "").strip()
+        if not clean_title or len(clean_title) > 45 or clean_title.lower().startswith("i'm happy to help") or clean_title.lower().startswith("create an errand"):
+            clean_title = {
+                "diaspora_pickup": "Personal Errand",
+                "doc_v2": "Document & Office",
+                "market_run": "Market Run",
+                "driver_dispatch": "Driver Dispatch",
+                "property_v2": "Property Inspection",
+                "health_v2": "Prescription & Health",
+                "shopping_v2": "Shopping Errand",
+                "custom_v2": "Custom Errand"
+            }.get(payload.category or "", "General Errand")
+
         model = Errand(
             reference_number=placeholder_ref,
-            title=payload.title,
-            description=payload.description,
+            title=clean_title,
+            description=payload.description or clean_title,
             pickup_location=pickup_location,
             dropoff_location=payload.dropoff_location,
+            pickup_contact_name=payload.pickup_contact_name,
+            pickup_contact_phone=payload.pickup_contact_phone,
+            dropoff_contact_name=payload.dropoff_contact_name,
+            dropoff_contact_phone=payload.dropoff_contact_phone,
+            distance_km=payload.distance_km if payload.distance_km is not None else 5.0,
             note=note,
             status="submitted",
             user_id=int(user_id),
@@ -1184,15 +1219,37 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
         await session.commit()
         await session.refresh(model)
 
+    created_iso = model.created_at.isoformat() if getattr(model, "created_at", None) else None
     return {
         "id": model.id,
         "reference_number": model.reference_number,
+        "referenceNumber": model.reference_number,
         "title": model.title,
         "description": model.description,
         "pickup_location": model.pickup_location,
+        "pickupLocation": model.pickup_location,
         "dropoff_location": model.dropoff_location,
+        "dropoffLocation": model.dropoff_location,
+        "pickup_contact_name": getattr(model, "pickup_contact_name", None),
+        "pickupContactName": getattr(model, "pickup_contact_name", None),
+        "pickup_contact_phone": getattr(model, "pickup_contact_phone", None),
+        "pickupContactPhone": getattr(model, "pickup_contact_phone", None),
+        "dropoff_contact_name": getattr(model, "dropoff_contact_name", None),
+        "dropoffContactName": getattr(model, "dropoff_contact_name", None),
+        "dropoff_contact_phone": getattr(model, "dropoff_contact_phone", None),
+        "dropoffContactPhone": getattr(model, "dropoff_contact_phone", None),
+        "assigned_runner_name": pilot_name,
+        "assignedRunnerName": pilot_name,
         "status": model.status,
         "user_id": model.user_id,
+        "userId": model.user_id,
+        "pilot_id": model.pilot_id,
+        "pilotId": model.pilot_id,
+        "created_at": created_iso,
+        "createdAt": created_iso,
+        "pickup_time_slot_date": getattr(model, "pickup_time_slot_date", None),
+        "pickupTimeSlotDate": getattr(model, "pickup_time_slot_date", None),
+        "note": model.note,
     }
 
 
@@ -1209,16 +1266,61 @@ async def list_errands(
     """
     user_id = _current_user_id_from_request(request)
 
-    stmt = select(Errand).where(Errand.user_id == user_id)
+    from sqlalchemy.orm import aliased
+    pilot_alias = aliased(User)
+    stmt = (
+        select(Errand, pilot_alias)
+        .outerjoin(pilot_alias, Errand.pilot_id == pilot_alias.id)
+        .where(Errand.user_id == user_id)
+    )
     if status_filter:
         stmt = stmt.where(Errand.status == status_filter.strip())
     stmt = stmt.order_by(Errand.created_at.desc()).offset(offset).limit(limit)
 
     async with AsyncSessionLocal() as session:
         result = await session.execute(stmt)
-        rows = result.scalars().all()
+        rows = result.all()
 
-    return [_errand_response(model) for model in rows]
+    out = []
+    for errand_row, pilot_user in rows:
+        pilot_name = None
+        if pilot_user:
+            fn = (pilot_user.first_name or "").strip()
+            ln = (pilot_user.last_name or "").strip()
+            pilot_name = f"{fn} {ln}".strip() or pilot_user.email or f"Pilot #{pilot_user.id}"
+        out.append(_errand_response(errand_row, pilot_name=pilot_name))
+
+    return out
+
+
+class ErrandStatusUpdateIn(BaseModel):
+    status: str
+    imageProofUrl: Optional[str] = None
+
+
+@app.put("/errands/{errand_id}/status", response_model=ErrandResponse)
+async def update_errand_status(errand_id: int, payload: ErrandStatusUpdateIn, request: Request):
+    user_id = _current_user_id_from_request(request)
+    
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Errand).where(Errand.id == errand_id)
+        )
+        model = result.scalar_one_or_none()
+        
+        if not model:
+            raise HTTPException(status_code=404, detail="Errand not found")
+            
+        if int(model.user_id) != int(user_id) and (model.pilot_id is None or int(model.pilot_id) != int(user_id)):
+            raise HTTPException(status_code=403, detail="Not allowed to update status")
+            
+        model.status = payload.status
+        
+        session.add(model)
+        await session.commit()
+        await session.refresh(model)
+        
+    return _errand_response(model)
 
 
 @app.get("/errands/{errand_id}", response_model=ErrandResponse)
@@ -1282,7 +1384,7 @@ async def upload_errand_attachment(errand_id: int, request: Request, file: Uploa
         model = await session.get(Errand, errand_id)
         if not model:
             raise HTTPException(status_code=404, detail="Errand not found")
-        if int(model.user_id) != int(user_id):
+        if int(model.user_id) != int(user_id) and (model.pilot_id is None or int(model.pilot_id) != int(user_id)):
             raise HTTPException(status_code=403, detail="Not allowed")
 
         attachment = ErrandAttachment(
@@ -1302,7 +1404,7 @@ async def upload_errand_attachment(errand_id: int, request: Request, file: Uploa
         "filename": attachment.original_filename,
         "contentType": attachment.content_type,
         "sizeBytes": attachment.size_bytes,
-        "url": f"/attachments/{attachment.id}",
+        "url": f"/attachments/{attachment.id}/download",
     }
 
 
@@ -1343,7 +1445,7 @@ async def list_errand_attachments(errand_id: int, request: Request):
             "filename": a.original_filename,
             "contentType": a.content_type,
             "sizeBytes": a.size_bytes,
-            "url": f"/attachments/{a.id}",
+            "url": f"/attachments/{a.id}/download",
             "label": getattr(a, "label", None),
             "reviewStatus": str(getattr(a, "review_status", "pending") or "pending"),
             "reviewNote": getattr(a, "review_note", None),
@@ -1385,7 +1487,7 @@ async def list_all_attachments(request: Request):
             "filename": a.original_filename,
             "contentType": a.content_type,
             "sizeBytes": a.size_bytes,
-            "url": f"/attachments/{a.id}",
+            "url": f"/attachments/{a.id}/download",
             "label": getattr(a, "label", None),
             "reviewStatus": str(getattr(a, "review_status", "pending") or "pending"),
             "reviewNote": getattr(a, "review_note", None),
@@ -1871,6 +1973,8 @@ async def download_attachment(attachment_id: int, request: Request):
     """
 
     token = _extract_bearer(request.headers.get("authorization"))
+    if not token:
+        token = request.query_params.get("token")
     user_id = decode_access_token(token) if token else None
     if not user_id:
         raise HTTPException(status_code=401, detail="Missing bearer token")
@@ -1884,7 +1988,8 @@ async def download_attachment(attachment_id: int, request: Request):
         model = await session.get(Errand, attachment.errand_id)
         if not model:
             raise HTTPException(status_code=404, detail="Errand not found")
-        if int(model.user_id) != int(user_id):
+        if int(model.user_id) != int(user_id) and (model.pilot_id is None or int(model.pilot_id) != int(user_id)):
+            print(f"[DEBUG] 403 in download_attachment: model.user_id={model.user_id}, model.pilot_id={model.pilot_id}, request user_id={user_id}", flush=True)
             raise HTTPException(status_code=403, detail="Not allowed")
 
     cfg = get_storage_config()

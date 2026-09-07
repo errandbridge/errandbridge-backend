@@ -11,6 +11,7 @@ import json
 import time
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status, Form, Query, Request, Response
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select, update
@@ -1160,11 +1161,6 @@ def _assert_user_role_allowed(user: User, role: str) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account is not registered as a pilot",
         )
-    if role == "client" and user.is_pilot:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Pilot accounts must sign in via Pilot mode",
-        )
 
 
 def _login_code_destination(user: User, requested_channel: OtpChannel) -> tuple[OtpChannel, str | None]:
@@ -1279,13 +1275,9 @@ async def _get_or_create_oauth_user(
     if user:
         if role == "pilot" and not user.is_pilot:
             if allow_pilot_signup:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Email already registered for a different account type",
-                )
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account is not registered as a pilot")
-        if role == "client" and user.is_pilot:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Pilot accounts must sign in via Pilot mode")
+                user.is_pilot = True
+            else:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account is not registered as a pilot")
         if not user.is_email_verified:
             user.is_email_verified = True
         return user
@@ -1926,6 +1918,14 @@ async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
     return _build_auth_response(user)
 
 
+@router.post("/swagger-login", include_in_schema=False)
+async def swagger_login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+    """Dedicated login endpoint for Swagger UI's Authorize button."""
+    payload = LoginRequest(email=form_data.username, password=form_data.password)
+    auth_response = await login(payload=payload, db=db)
+    return {"access_token": auth_response.token, "token_type": "bearer"}
+
+
 @router.post("/login", response_model=AuthResponse)
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> AuthResponse:
     disable_email_confirmation = is_email_confirmation_disabled()
@@ -1964,11 +1964,6 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Au
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account is not registered as a pilot",
-        )
-    if role == "client" and user.is_pilot:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Pilot accounts must sign in via Pilot mode",
         )
 
     return _build_auth_response(user)
