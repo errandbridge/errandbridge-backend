@@ -43,7 +43,7 @@ from app.routes.pilot_profile import router as pilot_profile_router
 from app.routes.user_profile import router as user_profile_router
 from app.routes.payments import router as payments_router, webhooks_router
 from app.routes.promo_codes import router as promo_codes_router
-from routes_auth import login_router, router as auth_router, tso_router
+from routes_auth import router as auth_router
 from auth import decode_access_token, hash_password
 from auth_user_query import AUTH_SAFE_USER_LOAD_OPTIONS, auth_safe_user_by_email_query
 from datetime import datetime, timedelta, timezone
@@ -138,10 +138,6 @@ OPENAPI_TAGS = [
     {
         "name": "01 Auth & Account",
         "description": "Signup, password login, OAuth, password reset, account profile, email/SMS status, and account security.",
-    },
-    {
-        "name": "02 One-time Code Login",
-        "description": "Two-step tokenized sign-in flow: request a one-time code, then verify it for a short-lived session token.",
     },
     {
         "name": "03 Errands & Attachments",
@@ -1124,8 +1120,6 @@ graphql_app = GraphQLRouter(schema, context_getter=get_context, prefix="/graphql
 # Add routers
 app.include_router(graphql_app)
 app.include_router(auth_router)
-app.include_router(login_router)
-app.include_router(tso_router)
 # Backwards compatibility: some deployed frontends historically called /api/auth/*.
 # Mounting the same router under /api keeps those clients working without needing
 # an immediate frontend redeploy.

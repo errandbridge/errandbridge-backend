@@ -109,27 +109,6 @@ def _raise_db_unavailable(exc: Exception | None = None) -> None:
     )
 
 
-class SignupRequest(BaseModel):
-    email: str = Field(..., min_length=1)
-    password: str = Field(..., min_length=8)
-    first_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    last_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    phone: Optional[str] = Field(default=None, min_length=3, max_length=32)
-    role: Optional[str] = Field(default="client")
-
-    # Verification onboarding (v1)
-    id_collected_offline: bool = False
-    address_line1: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    address_line2: Optional[str] = Field(default=None, max_length=200)
-    city: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    state: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    postal_code: Optional[str] = Field(default=None, min_length=1, max_length=30)
-    country: Optional[str] = Field(default=None, min_length=2, max_length=80)
-
-    otp_delivery_channel: OtpChannel = Field(default=DEFAULT_OTP_CHANNEL)
-    otp_delivery_mode: OtpMode = Field(default=DEFAULT_OTP_MODE)
-
-
 class OtpSendRequestSimple(BaseModel):
     email: str = Field(..., min_length=1)
     first_name: Optional[str] = None
@@ -137,72 +116,10 @@ class OtpSendRequestSimple(BaseModel):
     role: Optional[str] = Field(default="client")
 
 
-class LoginRequest(BaseModel):
+class OtpVerifyRequest(BaseModel):
     email: str = Field(..., min_length=1)
-    password: str = Field(..., min_length=1)
+    otp_code: str = Field(..., min_length=1)
     role: Optional[str] = Field(default="client")
-
-
-class LoginCodeRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    link_token: str = Field(
-        ...,
-        alias="token",
-        min_length=10,
-        description=(
-            "Short-lived signed login link token. The token must be a JWT signed by the backend "
-            "with audience 'login-link' and either a user id in 'sub' or an identifier/email claim."
-        ),
-    )
-    role: Optional[str] = Field(default="client")
-    otp_delivery_channel: OtpChannel = Field(default=DEFAULT_OTP_CHANNEL)
-    otp_delivery_mode: OtpMode = Field(default=DEFAULT_OTP_MODE)
-
-
-class LoginCodeRequestData(BaseModel):
-    deliveryChannel: str
-    maskedDestination: str
-    expiresInSeconds: int
-
-
-class LoginCodeRequestResponse(BaseModel):
-    status: str = "SUCCESS"
-    code: int = 0
-    message: str = "Code sent"
-    data: LoginCodeRequestData
-    timestamp: str
-    error: Optional[str] = None
-    path: str
-
-
-class LoginCodeVerifyRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    link_token: str = Field(..., alias="token", min_length=10)
-    code: str = Field(..., min_length=4, max_length=10)
-    role: Optional[str] = Field(default="client")
-
-
-class LoginCodeVerifyData(BaseModel):
-    sessionToken: str
-    refreshToken: str
-    userUuid: str = Field(
-        ...,
-        description="Stable public UUID for mapping data to this user. Not a replacement for Bearer authentication.",
-    )
-    expiresInSeconds: int
-    tokenType: str = "bearer"
-
-
-class LoginCodeVerifyResponse(BaseModel):
-    status: str = "SUCCESS"
-    code: int = 0
-    message: str = "Code verified"
-    data: LoginCodeVerifyData
-    timestamp: str
-    error: Optional[str] = None
-    path: str
 
 
 class GoogleAuthRequest(BaseModel):
@@ -1269,176 +1186,9 @@ def _api_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _login_code_session_minutes() -> int:
-    raw = (os.getenv("LOGIN_CODE_SESSION_MINUTES") or "60").strip()
-    try:
-        minutes = int(raw)
-    except ValueError:
-        minutes = 60
-    return max(5, min(minutes, 24 * 60))
 
 
-def _decode_login_link_token(link_token: str) -> dict[str, Any]:
-    try:
-        data = jose_jwt.decode(
-            link_token,
-            JWT_SECRET_KEY,
-            algorithms=[JWT_ALGORITHM],
-            audience="login-link",
-        )
-        if not isinstance(data, dict):
-            raise ValueError("Invalid link token")
-        return data
-    except (JWTError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired link token",
-        )
 
-
-async def _get_user_from_login_link_token(db: AsyncSession, link_token: str) -> User:
-    data = _decode_login_link_token(link_token)
-    subject = str(data.get("sub") or "").strip()
-    identifier = str(
-        data.get("identifier") or data.get("email") or data.get("phone") or ""
-    ).strip()
-
-    user: User | None = None
-    if subject:
-        try:
-            user_id = int(subject)
-        except ValueError:
-            user_id = None
-        if user_id is not None:
-            user = await db.get(User, user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS)
-        else:
-            user = await _get_user_by_identifier(db, subject)
-
-    if not user and identifier:
-        user = await _get_user_by_identifier(db, identifier)
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired link token",
-        )
-    return user
-
-
-def _assert_user_role_allowed(user: User, role: str) -> None:
-    if role == "pilot" and not user.is_pilot:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account is not registered as a pilot",
-        )
-
-
-def _login_code_destination(
-    user: User, requested_channel: OtpChannel
-) -> tuple[OtpChannel, str | None]:
-    channel: OtpChannel = (
-        requested_channel
-        if requested_channel in ("email", "sms")
-        else DEFAULT_OTP_CHANNEL
-    )
-    if channel == "sms" and not user.phone:
-        channel = "email"
-    if channel == "sms":
-        phone = str(user.phone or "")
-        return channel, ("***" if len(phone) <= 4 else f"***{phone[-4:]}")
-    return channel, _mask_email(user.email)
-
-
-@tso_router.post("/request-code", response_model=LoginCodeRequestResponse)
-@login_router.post("/request-code", response_model=LoginCodeRequestResponse)
-async def login_request_code(
-    payload: LoginCodeRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> LoginCodeRequestResponse:
-    """Request a one-time access code using the link token."""
-    role = _normalize_role(payload.role)
-    user = await _get_user_from_login_link_token(db, payload.link_token)
-    _assert_user_role_allowed(user, role)
-
-    if not user.is_email_verified:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified"
-        )
-
-    delivery_channel, masked_destination = _login_code_destination(
-        user, payload.otp_delivery_channel
-    )
-    await _send_otp_for_user(
-        db,
-        user,
-        purpose="login",
-        channel=delivery_channel,
-        mode=payload.otp_delivery_mode,
-        smoke_env="SMOKE_LOGIN_OTP",
-    )
-    return LoginCodeRequestResponse(
-        status="SUCCESS",
-        code=0,
-        message="Code sent",
-        data={
-            "deliveryChannel": delivery_channel,
-            "maskedDestination": masked_destination,
-            "expiresInSeconds": 10 * 60,
-        },
-        timestamp=_api_timestamp(),
-        error=None,
-        path=request.url.path,
-    )
-
-
-@tso_router.post("/verify", response_model=LoginCodeVerifyResponse)
-@login_router.post("/verify", response_model=LoginCodeVerifyResponse)
-async def login_verify_code(
-    payload: LoginCodeVerifyRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> LoginCodeVerifyResponse:
-    """Verify the code and obtain a time-limited session token."""
-    role = _normalize_role(payload.role)
-    user = await _get_user_from_login_link_token(db, payload.link_token)
-    _assert_user_role_allowed(user, role)
-
-    if not user.is_email_verified:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified"
-        )
-
-    try:
-        _check_otp(user, payload.code)
-    except HTTPException as e:
-        if e.detail == "Invalid code":
-            await db.commit()
-        raise
-
-    _clear_otp(user)
-    await db.commit()
-
-    session_minutes = _login_code_session_minutes()
-    session_token = create_access_token(
-        user_id=user.id, expires_minutes=session_minutes
-    )
-    refresh_token = create_refresh_token(user_id=user.id)
-    return LoginCodeVerifyResponse(
-        status="SUCCESS",
-        code=0,
-        message="Code verified",
-        data={
-            "sessionToken": session_token,
-            "refreshToken": refresh_token,
-            "userUuid": _public_user_uuid(user),
-            "expiresInSeconds": session_minutes * 60,
-            "tokenType": "bearer",
-        },
-        timestamp=_api_timestamp(),
-        error=None,
-        path=request.url.path,
-    )
 
 
 async def _get_or_create_oauth_user(
@@ -2110,153 +1860,13 @@ async def google_oauth_callback(
         )
 
 
-@router.post("/signup", response_model=AuthResponse)
-async def signup(
-    payload: SignupRequest, db: AsyncSession = Depends(get_db)
-) -> AuthResponse:
-    import os
-    from database import DATABASE_URL, _redact_database_url
-
-    disable_email_confirmation = is_email_confirmation_disabled()
-    role = _normalize_role(payload.role)
-    email, normalized_phone, identifier_kind = _resolve_signup_identity(payload, role)
-
-    print(f"[SIGNUP] Signup attempt for: {email}", flush=True)
-    print(
-        f"[SIGNUP] Database URL being used: {_redact_database_url(DATABASE_URL)}",
-        flush=True,
-    )
-    print(f"[SIGNUP] ENV={os.getenv('ENV')}", flush=True)
-    try:
-        existing = (
-            await _get_user_by_phone(db, normalized_phone)
-            if identifier_kind == "phone"
-            else await _get_user_by_email(db, email)
-        )
-        phone_owner = (
-            await _get_user_by_phone(db, normalized_phone) if normalized_phone else None
-        )
-        print(f"[SIGNUP] Email lookup result - existing user: {existing}", flush=True)
-    except Exception as e:
-        print(f"[SIGNUP] Error during email lookup: {e}", flush=True)
-        _raise_db_unavailable(e)
-
-    if phone_owner and (not existing or phone_owner.id != existing.id):
-        if phone_owner.is_pilot != (role == "pilot"):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Phone number already registered for a different account type",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Phone number already registered",
-        )
-
-    first_name = (payload.first_name or "").strip()
-    last_name = (payload.last_name or "").strip()
-    if not first_name or not last_name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="First and last name are required for signup.",
-        )
-
-    if existing:
-        if existing.is_pilot != (role == "pilot"):
-            conflict_label = "Phone number" if identifier_kind == "phone" else "Email"
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"{conflict_label} already registered for a different account type",
-            )
-        if not existing.is_email_verified:
-            if disable_email_confirmation:
-                existing.is_email_verified = True
-                existing.email_otp_hash = None
-                existing.email_otp_expires_at = None
-                existing.email_otp_last_sent_at = None
-                existing.email_otp_attempts = 0
-                await db.commit()
-                return _build_auth_response(existing, is_email_verified=True)
-            await _send_otp_for_user(
-                db,
-                existing,
-                purpose="signup confirmation",
-                channel=(
-                    "sms"
-                    if identifier_kind == "phone"
-                    else payload.otp_delivery_channel
-                ),
-                mode=payload.otp_delivery_mode,
-                smoke_env="SMOKE_OTP_CODE",
-            )
-            return _build_auth_response(existing)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Phone number already registered"
-                if identifier_kind == "phone"
-                else "Email already registered"
-            ),
-        )
-
-    user = User(
-        email=email,
-        password_hash=hash_password(payload.password),
-        first_name=first_name,
-        last_name=last_name,
-        phone=normalized_phone,
-        id_verification_method=("offline" if payload.id_collected_offline else None),
-        id_verification_status=(
-            "pending" if payload.id_collected_offline else "pending"
-        ),
-        address_line1=payload.address_line1,
-        address_line2=payload.address_line2,
-        city=payload.city,
-        state=payload.state,
-        postal_code=payload.postal_code,
-        country=payload.country,
-        address_verification_status=(
-            "pending"
-            if any(
-                [
-                    payload.address_line1,
-                    payload.city,
-                    payload.state,
-                    payload.postal_code,
-                    payload.country,
-                ]
-            )
-            else "pending"
-        ),
-        is_email_verified=disable_email_confirmation,
-        is_pilot=(role == "pilot"),
-    )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-
-    if not disable_email_confirmation:
-        await _send_otp_for_user(
-            db,
-            user,
-            purpose="signup confirmation",
-            channel=(
-                "sms" if identifier_kind == "phone" else payload.otp_delivery_channel
-            ),
-            mode=payload.otp_delivery_mode,
-            smoke_env="SMOKE_OTP_CODE",
-        )
-
-    # Signup now returns a token but the account is unverified until /auth/confirm succeeds.
-    return _build_auth_response(user)
-
-
 @router.post("/swagger-login", include_in_schema=False)
 async def swagger_login(
     form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)
 ):
     """Dedicated login endpoint for Swagger UI's Authorize button."""
-    payload = LoginRequest(email=form_data.username, password=form_data.password)
-    auth_response = await login(payload=payload, db=db)
+    payload = OtpVerifyRequest(email=form_data.username, otp_code=form_data.password)
+    auth_response = await otp_verify(payload=payload, db=db)
     return {"access_token": auth_response.token, "token_type": "bearer"}
 
 
@@ -2264,6 +1874,11 @@ async def swagger_login(
 async def otp_request(
     payload: OtpSendRequestSimple, db: AsyncSession = Depends(get_db)
 ):
+    """
+    Unified endpoint for Login and Signup. 
+    If the email doesn't exist (and first/last name are provided), it creates the account.
+    Then it sends a One-Time Password (OTP) to the user's email.
+    """
     import secrets
     import string
     
@@ -2301,10 +1916,11 @@ async def otp_request(
     return {"success": True, "message": "OTP sent successfully."}
 
 
-@router.post("/login", response_model=AuthResponse)
-async def login(
-    payload: LoginRequest, db: AsyncSession = Depends(get_db)
+@router.post("/otp/verify", response_model=AuthResponse)
+async def otp_verify(
+    payload: OtpVerifyRequest, db: AsyncSession = Depends(get_db)
 ) -> AuthResponse:
+    """Verify the OTP code and return a session token."""
     disable_email_confirmation = is_email_confirmation_disabled()
     identifier = (payload.email or "").strip()
     role = _normalize_role(payload.role)
@@ -2317,12 +1933,12 @@ async def login(
         _raise_db_unavailable(e)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or code"
         )
 
     # Check OTP instead of password
     try:
-        _check_otp(user, payload.password)
+        _check_otp(user, payload.otp_code)
     except Exception as e:
         print(f"[AUTH] Error verifying OTP for {payload.email}: {e}", flush=True)
         raise HTTPException(
