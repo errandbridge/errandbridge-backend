@@ -40,9 +40,35 @@ def get_security_code_email(code: str, expires_in_minutes: int = 10) -> str:
 
     # Shield graphic SVGs for the right side
     shield_graphic = '''
-    <div style="background-color:#E9F5E3; border-radius: 40% 40% 40% 40% / 60% 60% 40% 40%; width: 140px; height: 160px; position: relative; margin: 0 auto; text-align: center; padding-top: 30px; box-sizing: border-box;">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="#1F6C4C" stroke="#1F6C4C" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><rect x="9" y="10" width="6" height="7" rx="1" fill="#FFFFFF"></rect><path d="M10 10V8a2 2 0 0 1 4 0v2" stroke="#FFFFFF" fill="none"></path></svg>
-        <div style="margin-top:15px; font-family: 'Caveat', 'Comic Sans MS', cursive; font-size: 16px; color:#1F6C4C; transform: rotate(-8deg);">You're in safe hands</div>
+    <div style="text-align: center; position: relative;">
+        <!-- Using a robust SVG for the entire illustration to avoid email client CSS issues -->
+        <svg width="220" height="240" viewBox="0 0 220 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Light green blob -->
+            <path d="M185.3 47.7C208.7 75.3 219.7 114.9 211.2 147.2C202.7 179.5 174.6 204.6 142.1 217.4C109.6 230.2 72.8 230.6 44.9 214.3C17 198  -1.9 164.9 0.1 133.3C2.1 101.6 15 71.4 36.9 45.4C58.8 19.4 89.8 -2.4 122 -0.8C154.2 0.8 161.9 20.1 185.3 47.7Z" fill="#F1F5E8" />
+            
+            <!-- Lime green rays -->
+            <path d="M63 67 L53 62" stroke="#C3EC30" stroke-width="4" stroke-linecap="round" />
+            <path d="M50 90 L40 93" stroke="#C3EC30" stroke-width="4" stroke-linecap="round" />
+            <path d="M56 114 L49 123" stroke="#C3EC30" stroke-width="4" stroke-linecap="round" />
+            
+            <path d="M157 51 L163 42" stroke="#C3EC30" stroke-width="4" stroke-linecap="round" />
+            <path d="M174 65 L184 62" stroke="#C3EC30" stroke-width="4" stroke-linecap="round" />
+            
+            <!-- Shield -->
+            <path d="M110 50L75 62.5V106.25C75 142.875 89.875 176.625 110 190C130.125 176.625 145 142.875 145 106.25V62.5L110 50Z" fill="#D3E6D8" />
+            
+            <!-- Padlock inside shield -->
+            <!-- Lock body -->
+            <rect x="95" y="105" width="30" height="22" rx="4" fill="#0C2E20" />
+            <!-- Lock shackle -->
+            <path d="M100 105V95C100 89.4772 104.477 85 110 85C115.523 85 120 89.4772 120 95V105" stroke="#0C2E20" stroke-width="4" stroke-linecap="round" />
+            <!-- Lock keyhole -->
+            <circle cx="110" cy="116" r="3" fill="#D3E6D8" />
+            <path d="M109 118H111V123H109V118Z" fill="#D3E6D8" />
+        </svg>
+        <div style="margin-top:-30px; margin-left: 50px; font-family: 'Caveat', 'Comic Sans MS', cursive; font-size: 18px; color:#1F6C4C; transform: rotate(-10deg);">
+            You're<br>in safe hands
+        </div>
     </div>
     '''
 
@@ -78,7 +104,7 @@ def get_security_code_email(code: str, expires_in_minutes: int = 10) -> str:
                       <td style="vertical-align:top; width: 60%;">
                         <p style="margin:0;color:{colors['muted']};font-size:12px;font-weight:800;letter-spacing:3px;text-transform:uppercase;">Security code</p>
                         <h1 style="margin:12px 0 10px;color:{colors['brandDeep']};font-size:38px;line-height:1.1;font-weight:800;letter-spacing:-1px;">
-                          Here's your<br />security code
+                          Your security<br />code
                         </h1>
                         <p style="margin:0;color:#56655E;font-size:16px;line-height:1.6;max-width:300px;">
                           Use the code below to continue signing in to your ErrandBridge account.
@@ -92,7 +118,7 @@ def get_security_code_email(code: str, expires_in_minutes: int = 10) -> str:
                             </tbody>
                           </table>
                           <p style="margin:16px 0 0;text-align:center;color:#5E6D65;font-size:13px;line-height:1.5;">
-                            This code will expire in <strong style="color:{colors['brandDeep']};">{expires_in_minutes} minutes</strong>.
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5E6D65" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;margin-bottom:2px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg> Expires in <strong style="color:{colors['brandDeep']};">{expires_in_minutes} minutes</strong>.
                           </p>
                         </div>
                       </td>
@@ -161,19 +187,19 @@ def get_security_code_email(code: str, expires_in_minutes: int = 10) -> str:
               </tr>
 
               <tr>
-                <td style="padding:30px 20px;background-color:#FAFCF8;border-top:1px solid {colors['line']};">
+                <td style="padding:30px 20px;background-color:#FFFFFF;border-top:1px solid {colors['line']};">
                   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                     <tbody>
                       <tr>
-                        <td style="width:25%;padding:0 8px;text-align:center;vertical-align:top;">
+                        <td style="width:25%;padding:0 8px;text-align:center;vertical-align:top;border-right:1px solid {colors['line']};">
                           <div style="margin:0 auto 8px;width:24px;height:24px;">{icon_cart}</div>
                           <div style="font-size:12px;line-height:1.35;color:#65756D;font-weight:500;">Run errands</div>
                         </td>
-                        <td style="width:25%;padding:0 8px;text-align:center;vertical-align:top;">
+                        <td style="width:25%;padding:0 8px;text-align:center;vertical-align:top;border-right:1px solid {colors['line']};">
                           <div style="margin:0 auto 8px;width:24px;height:24px;">{icon_map}</div>
                           <div style="font-size:12px;line-height:1.35;color:#65756D;font-weight:500;">Track in real time</div>
                         </td>
-                        <td style="width:25%;padding:0 8px;text-align:center;vertical-align:top;">
+                        <td style="width:25%;padding:0 8px;text-align:center;vertical-align:top;border-right:1px solid {colors['line']};">
                           <div style="margin:0 auto 8px;width:24px;height:24px;">{icon_users}</div>
                           <div style="font-size:12px;line-height:1.35;color:#65756D;font-weight:500;">Trusted helpers</div>
                         </td>
@@ -196,11 +222,11 @@ def get_security_code_email(code: str, expires_in_minutes: int = 10) -> str:
           <img src="{logo_mark_url}" alt="ErrandBridge" width="32" height="32" style="display:block;margin:0 auto 12px;border:0;" onerror="this.outerHTML='<div style=\'font-size:24px;font-weight:800;color:{colors['brandDeep']};\'>🍃</div>'" />
           <div style="font-size:13px;font-weight:500;">Simple errands. Stronger communities.</div>
           <div style="margin-top:20px;font-size:16px;color:#A4B2AA;letter-spacing:10px;">
-            <a href="#" style="color:inherit;text-decoration:none;">𝕏</a>
-            <a href="#" style="color:inherit;text-decoration:none;">📷</a>
-            <a href="#" style="color:inherit;text-decoration:none;">f</a>
-            <a href="#" style="color:inherit;text-decoration:none;">in</a>
-            <a href="#" style="color:inherit;text-decoration:none;">▶</a>
+            <a href="#" style="color:inherit;text-decoration:none;display:inline-block;vertical-align:middle;"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+            <a href="#" style="color:inherit;text-decoration:none;display:inline-block;vertical-align:middle;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg></a>
+            <a href="#" style="color:inherit;text-decoration:none;display:inline-block;vertical-align:middle;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg></a>
+            <a href="#" style="color:inherit;text-decoration:none;display:inline-block;vertical-align:middle;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect x="2" y="9" width="4" height="12"></rect><circle cx="4" cy="4" r="2"></circle></svg></a>
+            <a href="#" style="color:inherit;text-decoration:none;display:inline-block;vertical-align:middle;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"></path><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon></svg></a>
           </div>
           <div style="margin-top:20px;color:#90A097;">© 2026 ErrandBridge. All rights reserved. &nbsp;|&nbsp; <a href="https://errandbridge.com/privacy" style="color:#90A097;text-decoration:none;">Privacy Policy</a> &nbsp;|&nbsp; <a href="https://errandbridge.com/terms" style="color:#90A097;text-decoration:none;">Terms of Service</a> &nbsp;|&nbsp; <a href="https://errandbridge.com/unsubscribe" style="color:#90A097;text-decoration:none;">Unsubscribe</a></div>
         </td>
