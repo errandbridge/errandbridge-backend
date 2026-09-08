@@ -1,13 +1,13 @@
 import uuid
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Date, Float
+from sqlalchemy import Column, Uuid, Integer, String, DateTime, Boolean, Date, Float
 from sqlalchemy.sql import func
 from database import Base
 
 
 class User(Base):
     __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
     user_uuid = Column(
         String(36),
         nullable=False,
