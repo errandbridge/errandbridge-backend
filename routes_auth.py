@@ -1,4 +1,5 @@
 from __future__ import annotations
+import uuid
 
 import os
 import asyncio
@@ -161,7 +162,7 @@ class AuthResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-    user_id: int
+    user_id: uuid.UUID
     user_uuid: str = Field(
         ...,
         description="Stable public UUID for mapping data to this user. Not a replacement for Bearer authentication.",
@@ -176,7 +177,7 @@ class AuthResponse(BaseModel):
 
 
 class MeResponse(BaseModel):
-    user_id: int
+    user_id: uuid.UUID
     user_uuid: str = Field(
         ...,
         description="Stable public UUID for mapping data to this user. Not a replacement for Bearer authentication.",
@@ -257,7 +258,7 @@ class UpdateProfileRequest(BaseModel):
 
 class UpdateProfileResponse(BaseModel):
     ok: bool = True
-    user_id: int
+    user_id: uuid.UUID
     user_uuid: str
     email: EmailStr
     first_name: Optional[str] = None
@@ -267,7 +268,7 @@ class UpdateProfileResponse(BaseModel):
 
 class DeactivateAccountResponse(BaseModel):
     ok: bool = True
-    user_id: int
+    user_id: uuid.UUID
     user_uuid: str
     email: EmailStr
     message: str
@@ -315,7 +316,7 @@ class AdminDiagnosticsResponse(BaseModel):
     exists: bool
     is_email_verified: bool = False
     is_admin: bool = False
-    user_id: Optional[int] = None
+    user_id: Optional[uuid.UUID] = None
     user_uuid: Optional[str] = None
 
 
@@ -1175,6 +1176,7 @@ async def _verify_oidc_id_token(
             algorithms=[key.get("alg") or "RS256"],
             audience=audience,
             issuer=issuer,
+            options={"verify_at_hash": False},
         )
         if nonce and claims.get("nonce") != nonce:
             raise HTTPException(
@@ -1183,7 +1185,8 @@ async def _verify_oidc_id_token(
         return claims
     except HTTPException:
         raise
-    except Exception:
+    except Exception as e:
+        print(f"[AUTH] OIDC decode failed: {type(e).__name__}: {e}", flush=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid id_token"
         )
@@ -1487,6 +1490,26 @@ def _google_oauth_config(*, role: str) -> tuple[str, str, str]:
 async def _verify_google_id_token(
     *, id_token: str, audience: str, nonce: str | None
 ) -> dict[str, Any]:
+    # Try Google official SDK first (handles certs, caching, at_hash automatically)
+    try:
+        from google.oauth2 import id_token as google_id_token
+        from google.auth.transport import requests as google_requests
+
+        claims = google_id_token.verify_oauth2_token(
+            id_token,
+            google_requests.Request(),
+            audience=audience,
+        )
+        if nonce and claims.get("nonce") != nonce:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token nonce"
+            )
+        return claims
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[GOOGLE AUTH] verify_oauth2_token fallback: {exc}", flush=True)
+
     # Google may use either issuer value.
     last_error: HTTPException | None = None
     for issuer in ("https://accounts.google.com", "accounts.google.com"):
@@ -1808,6 +1831,8 @@ async def google_oauth_callback(
                     "redirect_uri": redirect_uri,
                 },
             )
+            if resp.status_code != 200:
+                print(f"[GOOGLE AUTH] Token exchange error: {resp.status_code} {resp.text}", flush=True)
             resp.raise_for_status()
             token_payload = resp.json()
             id_token = token_payload.get("id_token") or ""
@@ -1846,6 +1871,7 @@ async def google_oauth_callback(
             status_code=status.HTTP_200_OK,
         )
     except HTTPException as e:
+        print(f"[GOOGLE AUTH] HTTPException: {e.detail}", flush=True)
         return HTMLResponse(
             content=_oauth_popup_result_html(
                 origin=origin,
@@ -1856,7 +1882,8 @@ async def google_oauth_callback(
             ),
             status_code=status.HTTP_200_OK,
         )
-    except Exception:
+    except Exception as e:
+        print(f"[GOOGLE AUTH] Unexpected callback failure: {type(e).__name__}: {e}", flush=True)
         return HTMLResponse(
             content=_oauth_popup_result_html(
                 origin=origin,
