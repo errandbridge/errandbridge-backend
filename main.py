@@ -390,13 +390,10 @@ def custom_openapi():
     components = openapi_schema.setdefault("components", {})
     security_schemes = components.setdefault("securitySchemes", {})
     security_schemes["BearerAuth"] = {
-        "type": "oauth2",
-        "flows": {"password": {"tokenUrl": "/auth/swagger-login", "scopes": {}}},
-        "description": (
-            "Authenticate with your email (as username) and password. "
-            "Auth responses also include user_uuid/userUuid as a stable public user identifier for data mapping; "
-            "that UUID is not a secret and does not replace Bearer authentication."
-        ),
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Enter your logged-in user's Bearer access token directly to authenticate API requests.",
     }
 
     openapi_schema["externalDocs"] = {
