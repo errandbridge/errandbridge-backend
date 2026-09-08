@@ -9,6 +9,14 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils.admin_utils import require_admin_user
+from app.dto import (
+    IncidentAlertsResponse,
+    IncidentResolveResponse,
+    SupportSuccessResponse,
+    IncidentReportResponse,
+    IncidentListResponse,
+    IncidentMessagesListResponse,
+)
 from auth import decode_access_token
 from database import get_db
 from models import Errand, IncidentReport, IncidentMessage, User
@@ -67,7 +75,7 @@ async def _require_pilot(authorization: Optional[str], db: AsyncSession) -> User
     return user
 
 
-@router.post("/report", response_model=dict)
+@router.post("/report", response_model=IncidentReportResponse, operation_id="reportIncident", summary="Report a delivery incident", description="Customer or pilot reports an issue, damage, delay, or dispute on an active errand.")
 async def report_incident(
     payload: IncidentReportIn,
     authorization: Optional[str] = Header(default=None),
@@ -125,7 +133,7 @@ async def report_incident(
     return {"incident_id": incident.id, "status": incident.status}
 
 
-@router.post("/{incident_id}/messages", response_model=dict)
+@router.post("/{incident_id}/messages", response_model=SupportSuccessResponse, operation_id="addIncidentMessage", summary="Add message to incident thread", description="Customer or pilot posts a follow-up reply or question regarding an incident.")
 async def add_incident_message(
     incident_id: str,
     payload: IncidentMessageIn,
@@ -169,7 +177,7 @@ async def add_incident_message(
     return {"success": True}
 
 
-@router.get("", response_model=dict)
+@router.get("", response_model=IncidentListResponse, operation_id="listAllIncidents", summary="List all incident reports", description="Administrative listing of all reported incidents across the platform.")
 async def list_all_incidents(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -220,7 +228,7 @@ async def list_all_incidents(
     return {"incidents": payload}
 
 
-@router.get("/alerts", response_model=dict)
+@router.get("/alerts", response_model=IncidentAlertsResponse, operation_id="listIncidentAlerts", summary="List urgent incident alerts", description="Retrieve high-priority unhandled incident alerts requiring immediate action.")
 async def list_incident_alerts(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -266,7 +274,7 @@ async def list_incident_alerts(
     }
 
 
-@router.post("/{incident_id}/admin-message", response_model=dict)
+@router.post("/{incident_id}/admin-message", response_model=SupportSuccessResponse, operation_id="addAdminIncidentMessage", summary="Admin reply to incident", description="Support agent posts an administrative update to the incident thread.")
 async def add_admin_incident_message(
     incident_id: str,
     payload: AdminIncidentMessageIn,
@@ -311,7 +319,7 @@ async def add_admin_incident_message(
     return {"success": True}
 
 
-@router.post("/{incident_id}/resolve", response_model=dict)
+@router.post("/{incident_id}/resolve", response_model=IncidentResolveResponse, operation_id="resolveIncident", summary="Resolve and close incident", description="Mark an incident as officially resolved with optional notes.")
 async def resolve_incident(
     incident_id: str,
     payload: AdminIncidentResolveIn,
@@ -393,7 +401,7 @@ async def resolve_incident(
     }
 
 
-@router.get("/errand/{errand_id}", response_model=dict)
+@router.get("/errand/{errand_id}", response_model=IncidentListResponse, operation_id="listIncidentsForErrand", summary="Get incidents for an errand", description="Retrieve all incident tickets associated with a specific errand ID.")
 async def list_incidents_for_errand(
     errand_id: str,
     authorization: Optional[str] = Header(default=None),
@@ -450,7 +458,7 @@ async def list_incidents_for_errand(
     }
 
 
-@router.get("/{incident_id}/messages", response_model=dict)
+@router.get("/{incident_id}/messages", response_model=IncidentMessagesListResponse, operation_id="listIncidentMessages", summary="Get incident messages thread", description="Retrieve the chronological conversation log for an incident ticket.")
 async def list_incident_messages(
     incident_id: str,
     authorization: Optional[str] = Header(default=None),

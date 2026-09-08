@@ -9,6 +9,7 @@ import hashlib
 from database import get_db
 from models import AnalyticsVisit
 from app.metrics.metrics_admin import record_visit
+from app.dto import AnalyticsVisitResponse
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -101,7 +102,13 @@ def _normalize_location_value(value: str | None) -> str | None:
     return raw
 
 
-@router.post("/visit", status_code=202)
+@router.post(
+    "/visit",
+    status_code=202,
+    response_model=AnalyticsVisitResponse,
+    operation_id="recordAnalyticsVisit",
+    summary="Record page visit analytics",
+)
 async def track_visit(
     payload: VisitPayload,
     request: Request,

@@ -27,6 +27,21 @@ import os
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
+from app.dto import (
+    AvailableJobItem,
+    PilotAvailableJobsResponse,
+    PilotJobItem,
+    PilotJobsResponse,
+    PilotJobActionResponse,
+    StartDeliveryResponse,
+    CompleteDeliveryResponse,
+    DelayReasonResponse,
+    TrackingControlResponse,
+    ActiveDeliveryResponse,
+    PilotDocumentItem,
+    PilotDocumentsListResponse,
+    AttachmentItem,
+)
 from auth import decode_access_token
 from models import (
     Errand,
@@ -380,7 +395,7 @@ async def _get_current_user(
     return user
 
 
-@router.get("/available-jobs", response_model=dict)
+@router.get("/available-jobs", response_model=PilotAvailableJobsResponse, operation_id="listAvailableJobs", summary="List available jobs", description="List open errands available for pilots to claim within operating radius and policy.")
 async def list_available_jobs(
     status_filter: Optional[str] = None,
     authorization: Optional[str] = Header(default=None),
@@ -477,7 +492,7 @@ async def list_available_jobs(
     }
 
 
-@router.get("/jobs", response_model=dict)
+@router.get("/jobs", response_model=PilotJobsResponse, operation_id="listPilotJobs", summary="List pilot assigned jobs", description="List active or completed errands currently assigned to the authenticated pilot.")
 async def list_pilot_jobs(
     status: Optional[str] = Query(default=None),
     status_filter: Optional[str] = None,
@@ -568,7 +583,7 @@ async def list_pilot_jobs(
     return {"errands": errands}
 
 
-@router.post("/accept-job", response_model=dict)
+@router.post("/accept-job", response_model=PilotJobActionResponse, operation_id="acceptPilotJob", summary="Accept an errand job", description="Pilot claims and accepts an errand assignment from the available jobs pool.")
 async def accept_job(
     errand_id: str = Body(..., embed=True),
     authorization: Optional[str] = Header(default=None),
@@ -761,7 +776,7 @@ async def accept_job(
     }
 
 
-@router.post("/assign", response_model=dict)
+@router.post("/assign", response_model=PilotJobActionResponse, operation_id="assignPilotJobDirect", summary="Directly assign job to pilot", description="Administrative or system assignment of an errand to a pilot.")
 async def assign_job_legacy(
     payload: dict = Body(...),
     authorization: Optional[str] = Header(default=None),
@@ -778,7 +793,7 @@ async def assign_job_legacy(
     )
 
 
-@router.get("/availability-history", response_model=dict)
+@router.get("/availability-history", operation_id="getPilotAvailabilityHistory", summary="Get availability history", description="Retrieve historical log of pilot online/offline status changes.")
 async def list_availability_history(
     limit: int = 20,
     authorization: Optional[str] = Header(default=None),
@@ -831,7 +846,7 @@ async def list_availability_history(
     return {"events": history}
 
 
-@router.post("/decline-job", response_model=dict)
+@router.post("/decline-job", response_model=PilotJobActionResponse, operation_id="declinePilotJob", summary="Decline a dispatched job", description="Pilot declines an assigned or offered errand so it returns to dispatch pool.")
 async def decline_job(
     errand_id: str = Body(..., embed=True),
     authorization: Optional[str] = Header(default=None),
@@ -930,7 +945,7 @@ def _availability_token(errand_id: str, pilot_id: str, expires_at: int) -> str:
     ).hexdigest()
 
 
-@router.get("/availability-response", response_model=dict)
+@router.get("/availability-response", operation_id="getPilotAvailabilityResponse", summary="Get availability response status", description="Check whether a pilot has responded to an availability ping for an errand.")
 async def availability_response(
     errand_id: str,
     response: str,
@@ -1030,7 +1045,7 @@ async def availability_response(
     return {"ok": True, "status": errand.status, "response": "no"}
 
 
-@router.post("/errands/{errand_id}/attachments", response_model=dict)
+@router.post("/errands/{errand_id}/attachments", response_model=AttachmentItem, operation_id="uploadPilotErrandAttachment", summary="Upload delivery proof attachment", description="Upload photo proof of pickup, dropoff, or receipt for an active errand.")
 async def upload_pilot_attachment(
     errand_id: str,
     authorization: Optional[str] = Header(default=None),
@@ -1102,7 +1117,7 @@ async def upload_pilot_attachment(
     }
 
 
-@router.post("/documents", response_model=dict)
+@router.post("/documents", response_model=PilotDocumentItem, operation_id="uploadPilotDocument", summary="Upload pilot compliance document", description="Upload driver license, insurance, or vehicle registration document.")
 async def upload_pilot_document(
     document_type: Optional[str] = None,
     authorization: Optional[str] = Header(default=None),
@@ -1160,7 +1175,7 @@ async def upload_pilot_document(
     }
 
 
-@router.get("/documents", response_model=dict)
+@router.get("/documents", response_model=PilotDocumentsListResponse, operation_id="listPilotDocuments", summary="List pilot verification documents", description="Retrieve list of all uploaded credentials and their review status.")
 async def list_pilot_documents(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -1191,7 +1206,7 @@ async def list_pilot_documents(
     }
 
 
-@router.post("/start-delivery", response_model=dict)
+@router.post("/start-delivery", response_model=StartDeliveryResponse, operation_id="startDelivery", summary="Start errand delivery run", description="Pilot confirms initiation of delivery run, enabling live tracking broadcast.")
 async def start_delivery(
     errand_id: str,
     note: Optional[str] = None,
@@ -1333,7 +1348,7 @@ async def start_delivery(
         )
 
 
-@router.post("/delay-reason", response_model=dict)
+@router.post("/delay-reason", response_model=DelayReasonResponse, operation_id="submitDelayReason", summary="Submit delivery delay explanation", description="Record unexpected traffic, weather, or vendor delay with customer notification.")
 async def submit_delay_reason(
     errand_id: str = Body(..., embed=True),
     reason: str = Body(..., embed=True),
@@ -1442,7 +1457,7 @@ async def submit_delay_reason(
     }
 
 
-@router.post("/complete-delivery", response_model=dict)
+@router.post("/complete-delivery", response_model=CompleteDeliveryResponse, operation_id="completeDelivery", summary="Complete delivery run", description="Mark errand as delivered and finalized, concluding tracking.")
 async def complete_delivery(
     errand_id: str,
     signature_url: Optional[str] = None,
@@ -1585,7 +1600,7 @@ async def complete_delivery(
         )
 
 
-@router.post("/pause-tracking", response_model=dict)
+@router.post("/pause-tracking", response_model=TrackingControlResponse, operation_id="pauseTracking", summary="Pause live location tracking", description="Temporarily pause GPS location broadcast during privacy breaks.")
 async def pause_tracking(
     errand_id: str,
     pilot_id: Optional[int] = None,
@@ -1657,7 +1672,7 @@ async def pause_tracking(
         )
 
 
-@router.post("/resume-tracking", response_model=dict)
+@router.post("/resume-tracking", response_model=TrackingControlResponse, operation_id="resumeTracking", summary="Resume live location tracking", description="Resume active GPS location broadcasting to customer tracking screen.")
 async def resume_tracking(
     errand_id: str,
     pilot_id: Optional[int] = None,
@@ -1725,7 +1740,7 @@ async def resume_tracking(
         )
 
 
-@router.get("/active-delivery", response_model=dict)
+@router.get("/active-delivery", response_model=ActiveDeliveryResponse, operation_id="getActiveDelivery", summary="Get active delivery details", description="Retrieve full metadata of the errand currently being delivered by pilot.")
 async def get_active_delivery(
     authorization: Optional[str] = Header(default=None),
     pilot_id: Optional[int] = None,
@@ -1738,7 +1753,7 @@ async def get_active_delivery(
         pilot = await _get_current_user(authorization, db)
 
         requested_pilot_id = pilot_id or pilot.id
-        if int(requested_pilot_id) != str(pilot.id):
+        if str(requested_pilot_id) != str(pilot.id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You can only view your own active delivery",
@@ -1795,7 +1810,7 @@ async def get_active_delivery(
         )
 
 
-@router.post("/assign-job", response_model=dict)
+@router.post("/assign-job", response_model=PilotJobActionResponse, operation_id="assignJobLegacy", summary="Legacy job assignment", description="Compatibility endpoint for legacy job assignment.")
 async def assign_job(
     payload: dict = Body(...),
     authorization: Optional[str] = Header(default=None),

@@ -1,3 +1,5 @@
+import uuid
+from typing import Union
 """
 Real-time pilot location tracking for ErrandBridge
 Handles GPS updates, location history, and live tracking streams
@@ -27,6 +29,7 @@ import math
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
+from app.dto import TrackingStatusResponse, FlexibleId
 from auth import decode_access_token
 from app.utils.admin_utils import admin_emails
 from database import get_db, AsyncSessionLocal
@@ -271,7 +274,7 @@ def _tracking_request_fingerprint(request: Request, location) -> dict:
 class LocationUpdate(BaseModel):
     """GPS location update from pilot"""
 
-    errand_id: str
+    errand_id: Union[str, int, uuid.UUID]
     latitude: float
     longitude: float
     accuracy: Optional[float] = None
@@ -285,9 +288,9 @@ class LocationUpdate(BaseModel):
 class LocationResponse(BaseModel):
     """Single location data point"""
 
-    id: str
-    errand_id: str
-    pilot_id: str
+    id: Union[str, int, uuid.UUID]
+    errand_id: Union[str, int, uuid.UUID]
+    pilot_id: Union[str, int, uuid.UUID]
     latitude: float
     longitude: float
     accuracy: Optional[float]
@@ -333,7 +336,7 @@ class RouteHistoryResponse(BaseModel):
     total_points: int
     start_location: Optional[LocationResponse]
     end_location: Optional[LocationResponse]
-    locations: list
+    locations: list[LocationResponse]
     distance_traveled: Optional[float]  # in km
     duration: Optional[str]
 
@@ -341,7 +344,7 @@ class RouteHistoryResponse(BaseModel):
 # ============= REST Endpoints =============
 
 
-@router.post("/update", response_model=LocationResponse)
+@router.post("/update", response_model=LocationResponse, operation_id="updateLocation", summary="Update pilot GPS location", description="Pilot mobile app reports live GPS coordinates during an active delivery.")
 async def update_location(
     location: LocationUpdate,
     authorization: Optional[str] = Header(default=None),
@@ -556,7 +559,7 @@ async def update_location(
     return payload
 
 
-@router.get("/status/{errand_id}", response_model=dict)
+@router.get("/status/{errand_id}", response_model=TrackingStatusResponse, operation_id="getTrackingStatus", summary="Get tracking status and authorization", description="Check whether live GPS tracking is allowed, active, and within time window for an errand.")
 async def get_tracking_status(
     errand_id: str,
     authorization: Optional[str] = Header(default=None),
@@ -575,7 +578,7 @@ async def get_tracking_status(
     return _tracking_status_payload(errand)
 
 
-@router.get("/current/{errand_id}", response_model=LocationResponse)
+@router.get("/current/{errand_id}", response_model=LocationResponse, operation_id="getCurrentLocation", summary="Get latest pilot location", description="Retrieve the most recent GPS location update for an active errand.")
 async def get_current_location(
     errand_id: str,
     authorization: Optional[str] = Header(default=None),
@@ -617,7 +620,7 @@ async def get_current_location(
     return _build_location_response(location, errand)
 
 
-@router.get("/history/{errand_id}", response_model=RouteHistoryResponse)
+@router.get("/history/{errand_id}", response_model=RouteHistoryResponse, operation_id="getRouteHistory", summary="Get errand route history", description="Retrieve full route breadcrumbs, start/end locations, and distance traveled.")
 async def get_route_history(
     errand_id: str,
     authorization: Optional[str] = Header(default=None),
@@ -680,7 +683,7 @@ async def get_route_history(
     )
 
 
-@router.get("/locations-last-hour/{errand_id}", response_model=list)
+@router.get("/locations-last-hour/{errand_id}", response_model=list[LocationResponse], operation_id="getLocationsLastHour", summary="Get errand locations from last hour", description="Retrieve chronological breadcrumbs recorded for errand during the past 60 minutes.")
 async def get_locations_last_hour(
     errand_id: str,
     authorization: Optional[str] = Header(default=None),

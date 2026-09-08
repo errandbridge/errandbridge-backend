@@ -40,7 +40,17 @@ from models import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/users", tags=["user-profile"])
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class UserProfileImageResponse(BaseModel):
+    """Profile image update outcome."""
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    ok: bool = Field(default=True, description="Operation success flag")
+    profile_image_url: Optional[str] = Field(default=None, description="Public URL of stored avatar")
+
+router = APIRouter(prefix="/users", tags=["01 Auth & Account"])
 
 # Upload directory for profile images
 UPLOAD_DIR = os.path.join(
@@ -92,7 +102,13 @@ async def _get_current_user(
     return user
 
 
-@router.put("/profile-image")
+@router.put(
+    "/profile-image",
+    response_model=UserProfileImageResponse,
+    operation_id="updateUserProfileImage",
+    summary="Upload or delete profile picture",
+    description="Upload an avatar image (max 5MB) or delete current avatar.",
+)
 async def update_profile_image(
     remove_profile_image: bool = Form(default=False),
     profile_image: UploadFile | None = File(default=None),

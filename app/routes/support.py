@@ -11,6 +11,12 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.utils.admin_utils import require_admin_user
+from app.dto import (
+    SupportHandoffAlertsResponse,
+    SupportConversationsListResponse,
+    SupportMessagesListResponse,
+    SupportActionResponse,
+)
 from auth import decode_access_token
 from database import get_db
 from models import SupportConversation, SupportMessage, User
@@ -149,7 +155,7 @@ async def _ai_response(message: str) -> tuple[str, bool]:
     return response_text, needs_handoff
 
 
-@router.post("/chat", response_model=SupportChatOut)
+@router.post("/chat", response_model=SupportChatOut, operation_id="supportChat", summary="Send customer support message", description="Submit message to human support agent thread.")
 async def chat_with_support(
     payload: SupportChatIn,
     authorization: Optional[str] = Header(default=None),
@@ -222,7 +228,7 @@ async def chat_with_support(
     )
 
 
-@router.get("/sessions/{session_id}/messages", response_model=dict)
+@router.get("/sessions/{session_id}/messages", response_model=SupportMessagesListResponse, operation_id="listSupportSessionMessages", summary="Get support session messages", description="Retrieve all messages for a given support session ID.")
 async def list_support_session_messages(
     session_id: str,
     authorization: Optional[str] = Header(default=None),
@@ -275,7 +281,7 @@ async def list_support_session_messages(
     }
 
 
-@router.get("/conversations", response_model=dict)
+@router.get("/conversations", response_model=SupportConversationsListResponse, operation_id="listSupportConversations", summary="List active support conversations", description="Administrative list of ongoing support threads with filter support.")
 async def list_support_conversations(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -314,7 +320,7 @@ async def list_support_conversations(
     }
 
 
-@router.get("/conversations/alerts", response_model=dict)
+@router.get("/conversations/alerts", response_model=SupportHandoffAlertsResponse, operation_id="listSupportHandoffAlerts", summary="List support escalation alerts", description="Retrieve alerts for conversations awaiting agent pickup.")
 async def list_support_handoff_alerts(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -355,7 +361,7 @@ async def list_support_handoff_alerts(
     }
 
 
-@router.get("/conversations/{conversation_id}/messages", response_model=dict)
+@router.get("/conversations/{conversation_id}/messages", response_model=SupportMessagesListResponse, operation_id="listSupportMessages", summary="Get conversation messages", description="Retrieve thread message history for a conversation.")
 async def list_support_messages(
     conversation_id: str,
     authorization: Optional[str] = Header(default=None),
@@ -390,7 +396,7 @@ async def list_support_messages(
     }
 
 
-@router.post("/conversations/{conversation_id}/admin-message", response_model=dict)
+@router.post("/conversations/{conversation_id}/admin-message", response_model=SupportActionResponse, operation_id="addSupportAdminMessage", summary="Send admin response to conversation", description="Support agent replies to customer in open conversation.")
 async def add_support_message(
     conversation_id: str,
     payload: AdminSupportMessageIn,
@@ -426,7 +432,7 @@ async def add_support_message(
     return {"success": True}
 
 
-@router.post("/complaints", response_model=dict)
+@router.post("/complaints", response_model=SupportActionResponse, operation_id="submitSupportComplaint", summary="Submit formal customer complaint", description="File an official customer dissatisfaction or dispute ticket.")
 async def submit_support_complaint(payload: SupportComplaintIn):
     subject = f"Compliance complaint: {payload.category.strip()}"
     body = (
@@ -451,7 +457,7 @@ async def submit_support_complaint(payload: SupportComplaintIn):
     }
 
 
-@router.post("/reviews", response_model=dict)
+@router.post("/reviews", response_model=SupportActionResponse, operation_id="submitSupportReview", summary="Submit feedback review for support", description="Rate support agent quality and satisfaction.")
 async def submit_support_review(payload: SupportReviewIn):
     inbox = (os.getenv("REVIEW_INBOX") or "review@errandbridge.com").strip()
     subject = f"New client review ({payload.rating}★)"

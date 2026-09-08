@@ -17,6 +17,7 @@ from models import Errand, User, VoiceCallSession, VoiceCallEvent
 from models.voice_call_event import build_event_hash
 from app.services.twilio_voice import create_call, request_transcription
 from app.services.voice_worm import store_worm_json, store_worm_bytes
+from app.dto import VoiceCallStartResponse, VoiceCallbackResponse
 import httpx
 
 router = APIRouter(prefix="/voice", tags=["voice"])
@@ -77,7 +78,12 @@ async def _log_event(
     return event
 
 
-@router.post("/call/start")
+@router.post(
+    "/call/start",
+    response_model=VoiceCallStartResponse,
+    operation_id="startMaskedVoiceCall",
+    summary="Initiate masked voice call session",
+)
 async def start_masked_call(
     request: Request,
     errand_id: str,
@@ -100,7 +106,7 @@ async def start_masked_call(
     if not pilot or not customer:
         raise HTTPException(status_code=400, detail="Pilot or customer not assigned")
 
-    if int(user_id) not in {str(pilot.id), int(customer.id)}:
+    if str(user_id) not in {str(pilot.id), str(customer.id)}:
         raise HTTPException(status_code=403, detail="Not authorized to start this call")
 
     if not pilot.phone or not customer.phone:
@@ -176,7 +182,12 @@ async def start_masked_call(
     }
 
 
-@router.post("/status/{session_id}")
+@router.post(
+    "/status/{session_id}",
+    response_model=VoiceCallbackResponse,
+    operation_id="twilioCallStatusWebhook",
+    summary="Webhook for Twilio call status updates",
+)
 async def twilio_status_callback(
     session_id: str,
     request: Request,
@@ -201,7 +212,12 @@ async def twilio_status_callback(
     return {"ok": True}
 
 
-@router.post("/recording/{session_id}")
+@router.post(
+    "/recording/{session_id}",
+    response_model=VoiceCallbackResponse,
+    operation_id="twilioCallRecordingWebhook",
+    summary="Webhook for Twilio recording completion",
+)
 async def twilio_recording_callback(
     session_id: str,
     request: Request,
@@ -275,7 +291,12 @@ async def twilio_recording_callback(
     return {"ok": True}
 
 
-@router.post("/transcription/{session_id}")
+@router.post(
+    "/transcription/{session_id}",
+    response_model=VoiceCallbackResponse,
+    operation_id="twilioCallTranscriptionWebhook",
+    summary="Webhook for Twilio transcription completion",
+)
 async def twilio_transcription_callback(
     session_id: str,
     request: Request,
@@ -316,7 +337,12 @@ async def twilio_transcription_callback(
     return {"ok": True}
 
 
-@router.get("/twiml/{session_id}")
+@router.get(
+    "/twiml/{session_id}",
+    response_class=PlainTextResponse,
+    operation_id="getVoiceConferenceTwiml",
+    summary="Render TwiML XML conference bridge instructions",
+)
 async def twiml_for_conference(
     session_id: str,
     request: Request,

@@ -34,17 +34,27 @@ from models import (
     ClientSubscription,
     StripeCheckoutSession,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from prometheus_fastapi_instrumentator import Instrumentator
 from strawberry.fastapi import GraphQLRouter
 from starlette.requests import Request
 from sqlalchemy import select, update, text
+from app.routes.dashboard import router as dashboard_router
 from app.routes.pilot_delivery import router as pilot_delivery_router
 from app.routes.pilot_profile import router as pilot_profile_router
 from app.routes.user_profile import router as user_profile_router
 from app.routes.payments import router as payments_router, webhooks_router
 from app.routes.promo_codes import router as promo_codes_router
 from routes_auth import router as auth_router
+from app.dto import (
+    ErrandAttachmentItem,
+    AttachmentLabelResponse,
+    AttachmentShareResponse,
+    HealthResponse,
+    ReadinessResponse,
+    DbHealthResponse,
+    AnomalyAlertItem,
+)
 from auth import decode_access_token, hash_password
 from auth_user_query import AUTH_SAFE_USER_LOAD_OPTIONS, auth_safe_user_by_email_query
 from datetime import datetime, timedelta, timezone
@@ -139,6 +149,10 @@ OPENAPI_TAGS = [
     {
         "name": "01 Auth & Account",
         "description": "Signup, password login, OAuth, password reset, account profile, email/SMS status, and account security.",
+    },
+    {
+        "name": "02 Dashboard",
+        "description": "Consolidated role-tailored dashboard aggregations for customer and pilot frontends.",
     },
     {
         "name": "03 Errands & Attachments",
@@ -456,8 +470,47 @@ async def _ensure_admin_accounts() -> None:
             print(f"[BOOTSTRAP] Created admin account for {email}", flush=True)
 
 
+
+class RootMessageResponse(BaseModel):
+    """Service entry status response."""
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    message: str = Field(default="ErrandBridge FastAPI backend is running!", description="Welcome banner")
+
+
+class VersionMetadataResponse(BaseModel):
+    """Build and deployment version info."""
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    service: str = Field(default="errandbridge-backend", description="Service identifier")
+    environment: str = Field(default="production", description="Active environment")
+    git_sha: str = Field(default="unknown", description="Git commit SHA")
+    build_id: str = Field(default="unknown", description="Build pipeline ID")
+    release: str = Field(default="unknown", description="Semantic release tag")
+
+
+class AnomalyAlertItem(BaseModel):
+    """Latency and anomaly monitor entry."""
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    timestamp: Optional[str] = Field(default=None, description="Alert timestamp")
+    latency: Optional[float] = Field(default=None, description="Latency measurement in seconds")
+
+
+class AnomalyAlertsListResponse(BaseModel):
+    """Container for anomaly alert events."""
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    alerts: list[AnomalyAlertItem] = Field(default_factory=list, description="Recent alerts")
+
 # === Anomaly Alerts Dashboard Endpoint ===
-@app.get("/anomaly-alerts")
+@app.get(
+    "/anomaly-alerts",
+    response_model=AnomalyAlertsListResponse,
+    operation_id="getAnomalyAlerts",
+    summary="Get anomaly detection alerts",
+    description="Return recent anomaly alerts for dashboard display.",
+)
 def get_anomaly_alerts(limit: int = 20):
     """Return recent anomaly alerts for dashboard display."""
     log_path = os.path.join(os.path.dirname(__file__), "anomaly_alerts.log")
@@ -726,7 +779,7 @@ async def get_public_profile_image(filename: str, request: Request):
 
 
 # Explicit OPTIONS handler for CORS preflight on file upload
-@app.options("/errands/{errand_id}/attachments")
+@app.options("/errands/{errand_id}/attachments", include_in_schema=False)
 async def options_upload_errand_attachment(errand_id: int):
     return Response(status_code=200)
 
@@ -991,8 +1044,8 @@ Instrumentator().instrument(app).expose(app, include_in_schema=False, should_gzi
 # Health check endpoint - liveness (should not depend on external services)
 @app.head("/health")
 @app.head("/health/")
-@app.get("/health")
-@app.get("/health/")
+@app.get("/health", response_model=HealthResponse, operation_id="healthLiveness", summary="Service liveness probe", description="Liveness probe for infrastructure load balancers.")
+@app.get("/health/", include_in_schema=False)
 async def health_liveness():
     """Liveness probe for ALB/ECS.
 
@@ -1012,8 +1065,8 @@ async def health_liveness():
 # Readiness check endpoint - tests database connectivity
 @app.head("/ready")
 @app.head("/ready/")
-@app.get("/ready")
-@app.get("/ready/")
+@app.get("/ready", response_model=ReadinessResponse, operation_id="readinessCheck", summary="Service readiness probe", description="Readiness check verifying database connectivity.")
+@app.get("/ready/", include_in_schema=False)
 async def readiness_check():
     """Readiness probe that verifies database connectivity."""
     timestamp = datetime.utcnow().isoformat()
@@ -1076,7 +1129,7 @@ async def readiness_check():
 
 
 # Development-only: Verify admin email (temporary for onboarding)
-@app.post("/dev/verify-admin/{email}")
+@app.post("/dev/verify-admin/{email}", include_in_schema=False)
 async def dev_verify_admin(email: str):
     """Temporary endpoint to verify admin email for development/onboarding."""
     _assert_dev_route_enabled()
@@ -1160,6 +1213,7 @@ app.include_router(errand_messages_router)
 app.include_router(payments_router)
 app.include_router(webhooks_router)
 app.include_router(promo_codes_router)
+app.include_router(dashboard_router)
 
 # Backwards compatibility for older app builds that call /v1/* or /api/v1/*.
 # New clients and Swagger docs should use root paths without the /v1 prefix.
@@ -1265,7 +1319,14 @@ def _errand_response(model: Errand, pilot_name: Optional[str] = None) -> ErrandR
     )
 
 
-@app.post("/errands")
+@app.post(
+    "/errands",
+    response_model=ErrandResponse,
+    status_code=201,
+    operation_id="createErrand",
+    summary="Create customer errand",
+    description="Create and dispatch a new errand for processing.",
+)
 async def create_errand(request: Request, payload: ErrandCreateRequest):
     """Create an errand via REST.
 
@@ -1417,7 +1478,7 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
     }
 
 
-@app.get("/errands", response_model=list[ErrandResponse])
+@app.get("/errands", response_model=list[ErrandResponse], operation_id="listErrands", summary="List customer errands", description="List errands owned by the authenticated customer.")
 async def list_errands(
     request: Request,
     status_filter: Optional[str] = Query(
@@ -1488,7 +1549,7 @@ async def update_errand_status(
     return _errand_response(model)
 
 
-@app.get("/errands/{errand_id}", response_model=ErrandResponse)
+@app.get("/errands/{errand_id}", response_model=ErrandResponse, operation_id="getErrandDetail", summary="Get errand details", description="Retrieve details for an errand by ID.")
 async def get_errand(errand_id: Union[uuid.UUID, int, str], request: Request):
     """Get one errand owned by the authenticated user."""
     user_id = _current_user_id_from_request(request)
@@ -1505,7 +1566,7 @@ async def get_errand(errand_id: Union[uuid.UUID, int, str], request: Request):
     return _errand_response(model)
 
 
-@app.post("/errands/{errand_id}/attachments")
+@app.post("/errands/{errand_id}/attachments", response_model=ErrandAttachmentItem, operation_id="uploadErrandAttachment", summary="Upload errand attachment", description="Upload image or PDF document attachment for an errand.")
 async def upload_errand_attachment(
     errand_id: Union[uuid.UUID, int, str], request: Request, file: UploadFile = File(...)
 ):
@@ -1577,7 +1638,7 @@ async def upload_errand_attachment(
     }
 
 
-@app.get("/errands/{errand_id}/attachments")
+@app.get("/errands/{errand_id}/attachments", response_model=list[ErrandAttachmentItem], operation_id="listErrandAttachments", summary="List errand attachments", description="List attachments associated with an errand.")
 async def list_errand_attachments(errand_id: Union[uuid.UUID, int, str], request: Request):
     """List attachments for an errand.
 
@@ -1628,7 +1689,7 @@ async def list_errand_attachments(errand_id: Union[uuid.UUID, int, str], request
     ]
 
 
-@app.get("/attachments")
+@app.get("/attachments", response_model=list[ErrandAttachmentItem], operation_id="listAllAttachments", summary="List user attachments", description="List all errand attachments belonging to authenticated user.")
 async def list_all_attachments(request: Request):
     """List all attachments for the authenticated user.
 
@@ -1676,7 +1737,7 @@ class AttachmentLabelIn(BaseModel):
     label: Optional[str] = Field(default=None, max_length=120)
 
 
-@app.put("/attachments/{attachment_id}/label")
+@app.put("/attachments/{attachment_id}/label", response_model=AttachmentLabelResponse, operation_id="updateAttachmentLabel", summary="Update attachment label", description="Owner updates attachment category label.")
 async def update_attachment_label(
     attachment_id: int, payload: AttachmentLabelIn, request: Request
 ):
@@ -1697,7 +1758,7 @@ async def update_attachment_label(
         errand = await session.get(Errand, attachment.errand_id)
         if not errand:
             raise HTTPException(status_code=404, detail="Errand not found")
-        if int(errand.user_id) != int(user_id):
+        if str(errand.user_id) != str(user_id):
             raise HTTPException(status_code=403, detail="Not allowed")
 
         attachment.label = label
@@ -1857,7 +1918,7 @@ class CreateShareLinkIn(BaseModel):
     max_uses: int = Field(default=50, ge=1, le=500)
 
 
-@app.post("/attachments/{attachment_id}/share")
+@app.post("/attachments/{attachment_id}/share", response_model=AttachmentShareResponse, operation_id="shareAttachment", summary="Create shareable link", description="Generate temporary public sharing URL for an attachment.")
 async def create_attachment_share_link(
     attachment_id: int,
     payload: CreateShareLinkIn,
@@ -2106,7 +2167,7 @@ async def download_shared_attachment_get(token: str, pin: str):
     )
 
 
-@app.get("/public/errands/{reference_number}", response_model=PublicErrandSummary)
+@app.get("/public/errands/{reference_number}", response_model=PublicErrandSummary, operation_id="getPublicErrandSummary", summary="Get public errand summary", description="Public unauthenticated errand preview by reference number.")
 async def public_errand_summary(reference_number: str):
     """Public errand summary for shareable links (sanitized)."""
 
@@ -2320,12 +2381,24 @@ Please enhance this errand request with a professional title and detailed instru
     )
 
 
-@app.get("/")
+@app.get(
+    "/",
+    response_model=RootMessageResponse,
+    operation_id="getRootServiceStatus",
+    summary="Root service status",
+    description="Liveness health message for ErrandBridge backend.",
+)
 def root():
     return {"message": "ErrandBridge FastAPI backend is running!"}
 
 
-@app.get("/version")
+@app.get(
+    "/version",
+    response_model=VersionMetadataResponse,
+    operation_id="getServiceVersion",
+    summary="Get deployment version",
+    description="Expose build, environment, and release metadata for deployment verification.",
+)
 def version():
     """Expose build and environment metadata for deployment verification."""
     return {
@@ -2337,7 +2410,7 @@ def version():
     }
 
 
-@app.post("/test-post")
+@app.post("/test-post", include_in_schema=False)
 async def test_post(data: dict = None):
     _assert_dev_route_enabled()
     print("[TEST] POST endpoint called", flush=True)

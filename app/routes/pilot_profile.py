@@ -30,6 +30,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from models import User
 from database import get_db
+from app.dto import (
+    PilotProfileUpdateResponse,
+    PilotChangePasswordResponse,
+    PilotProfileResponse,
+    PilotStatsResponse,
+    PilotAvailabilityResponse,
+)
 from auth import decode_access_token
 from app.pilot_dispatch import (
     ADMIN_DISPATCH_ENABLED,
@@ -205,7 +212,7 @@ async def _get_current_user(
     return user
 
 
-@router.get("/profile", response_model=dict)
+@router.get("/profile", response_model=PilotProfileResponse, operation_id="getPilotProfile", summary="Get pilot profile", description="Retrieve detailed pilot profile including vehicle and availability info.")
 async def get_profile(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -224,7 +231,7 @@ async def get_profile(
         )
 
 
-@router.put("/availability", response_model=dict)
+@router.put("/availability", response_model=PilotAvailabilityResponse, operation_id="updatePilotAvailability", summary="Update pilot availability", description="Toggle pilot status between online, offline, or busy.")
 async def update_availability(
     payload: PilotAvailabilityUpdate = Body(...),
     authorization: Optional[str] = Header(default=None),
@@ -273,7 +280,7 @@ async def update_availability(
         )
 
 
-@router.put("/profile", response_model=dict)
+@router.put("/profile", response_model=PilotProfileResponse, operation_id="updatePilotProfile", summary="Update pilot profile", description="Update pilot personal, telephone, and operational information.")
 async def update_profile(
     first_name: Optional[str] = Form(None),
     last_name: Optional[str] = Form(None),
@@ -361,7 +368,7 @@ async def update_profile(
         )
 
 
-@router.put("/address", response_model=dict)
+@router.put("/address", response_model=PilotProfileUpdateResponse, operation_id="updatePilotAddress", summary="Update pilot address", description="Update pilot residential or dispatch base address.")
 async def update_address(
     payload: AddressUpdate = Body(...),
     authorization: Optional[str] = Header(default=None),
@@ -403,7 +410,7 @@ async def update_address(
         )
 
 
-@router.put("/vehicle", response_model=dict)
+@router.put("/vehicle", response_model=PilotProfileUpdateResponse, operation_id="updatePilotVehicle", summary="Update pilot vehicle", description="Update vehicle make, model, license plate, and insurance details.")
 async def update_vehicle(
     payload: Optional[VehicleUpdate] = Body(default=None),
     vehicle_type: Optional[str] = Query(default=None),
@@ -476,7 +483,7 @@ async def update_vehicle(
         )
 
 
-@router.post("/change-password", response_model=dict)
+@router.post("/change-password", response_model=PilotChangePasswordResponse, operation_id="changePilotPassword", summary="Change pilot password", description="Authenticate and update pilot login credentials.")
 async def change_password(
     payload: Optional[ChangePasswordIn] = Body(default=None),
     current_password: Optional[str] = Query(default=None),
@@ -537,7 +544,7 @@ async def change_password(
         )
 
 
-@router.get("/stats", response_model=dict)
+@router.get("/stats", response_model=PilotStatsResponse, operation_id="getPilotStats", summary="Get pilot performance statistics", description="Retrieve metrics on completed errands, active jobs, ratings, and dispatch status.")
 async def get_pilot_stats(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),

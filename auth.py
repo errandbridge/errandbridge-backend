@@ -78,7 +78,7 @@ def verify_password(password: str, password_hash: str) -> bool:
     return PWD_CONTEXT.verify(password or "", password_hash)
 
 
-def create_access_token(*, user_id: uuid.UUID, expires_minutes: Optional[int] = None) -> str:
+def create_access_token(*, user_id: uuid.UUID | str | int, expires_minutes: Optional[int] = None) -> str:
     now = datetime.now(timezone.utc)
     token_minutes = (
         JWT_EXPIRES_MINUTES if expires_minutes is None else int(expires_minutes)
@@ -93,7 +93,7 @@ def create_access_token(*, user_id: uuid.UUID, expires_minutes: Optional[int] = 
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
-def create_refresh_token(*, user_id: uuid.UUID, expires_days: Optional[uuid.UUID] = None) -> str:
+def create_refresh_token(*, user_id: uuid.UUID | str | int, expires_days: Optional[int] = None) -> str:
     now = datetime.now(timezone.utc)
     token_days = JWT_REFRESH_EXPIRES_DAYS if expires_days is None else int(expires_days)
     exp = now + timedelta(days=token_days)

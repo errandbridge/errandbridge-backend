@@ -761,6 +761,7 @@ class UserProfile:
     country: str | None
     isEmailVerified: bool
     isAdmin: bool
+    mustChangePassword: bool = False
     profileImageUrl: str | None = None
     transparency: Transparency | None = None
 
@@ -1118,6 +1119,7 @@ class Mutation:
             country=user.country,
             isEmailVerified=bool(user.is_email_verified),
             isAdmin=is_admin,
+            mustChangePassword=bool(getattr(user, "must_change_password", False)),
             profileImageUrl=getattr(user, "profile_image_url", None),
             transparency=None,
         )
@@ -1273,7 +1275,10 @@ class Mutation:
         await session.refresh(model)
 
         # Send confirmation email
-        user = await session.get(User, str(resolved_user_id), options=AUTH_SAFE_USER_LOAD_OPTIONS)
+        if hasattr(session, "get"):
+            user = await session.get(User, str(resolved_user_id), options=AUTH_SAFE_USER_LOAD_OPTIONS)
+        else:
+            user = None
         if user and user.email:
             subject = f"Errand Created - #{model.reference_number} ({model.title})"
             body = (
@@ -2506,6 +2511,7 @@ class Query:
             country=user.country,
             isEmailVerified=bool(user.is_email_verified),
             isAdmin=is_admin,
+            mustChangePassword=bool(getattr(user, "must_change_password", False)),
             profileImageUrl=getattr(user, "profile_image_url", None),
             transparency=Transparency(
                 completed_errands=int(completed_count),

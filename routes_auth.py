@@ -25,6 +25,7 @@ from fastapi import (
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic.alias_generators import to_camel
 from sqlalchemy import cast, String, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import cast, String, func
@@ -111,58 +112,74 @@ def _raise_db_unavailable(exc: Exception | None = None) -> None:
     )
 
 
-class OtpSendRequestSimple(BaseModel):
+class CamelModel(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+
+class OtpRequestResponse(CamelModel):
+    """Outcome of OTP request."""
+    success: bool = Field(default=True, description="Delivery status flag")
+    message: str = Field(..., description="Status message")
+
+
+class ChangePasswordResponse(CamelModel):
+    """Outcome of password change."""
+    ok: bool = Field(default=True, description="Password updated flag")
+    message: str = Field(..., description="Status confirmation message")
+
+
+class OtpSendRequestSimple(CamelModel):
     email: str = Field(..., min_length=1)
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     role: Optional[str] = Field(default="client")
 
 
-class OtpVerifyRequest(BaseModel):
+class OtpVerifyRequest(CamelModel):
     email: str = Field(..., min_length=1)
     otp_code: str = Field(..., min_length=1)
     role: Optional[str] = Field(default="client")
 
 
-class GoogleAuthRequest(BaseModel):
+class GoogleAuthRequest(CamelModel):
     credential: str = Field(..., min_length=10)
     role: Optional[str] = Field(default="client")
     allow_pilot_signup: bool = Field(default=False)
 
 
-class OAuthFlowStatus(BaseModel):
+class OAuthFlowStatus(CamelModel):
     enabled: bool
     configured: bool
     origin_allowed: bool = True
     reason: Optional[str] = None
 
 
-class GoogleOAuthStatus(BaseModel):
+class GoogleOAuthStatus(CamelModel):
     redirect: OAuthFlowStatus
     token: OAuthFlowStatus
 
 
-class AppleOAuthStatus(BaseModel):
+class AppleOAuthStatus(CamelModel):
     redirect: OAuthFlowStatus
 
 
-class OAuthStatusResponse(BaseModel):
+class OAuthStatusResponse(CamelModel):
     origin: str
     role: str
     google: GoogleOAuthStatus
     apple: AppleOAuthStatus
 
 
-class ChangePasswordRequest(BaseModel):
+class ChangePasswordRequest(CamelModel):
     current_password: Optional[str] = None
     new_password: str = Field(..., min_length=8)
 
 
-class AuthResponse(BaseModel):
+class AuthResponse(CamelModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-    user_id: uuid.UUID
+    user_id: Any
     user_uuid: str = Field(
         ...,
         description="Stable public UUID for mapping data to this user. Not a replacement for Bearer authentication.",
@@ -176,8 +193,8 @@ class AuthResponse(BaseModel):
     must_change_password: bool = False
 
 
-class MeResponse(BaseModel):
-    user_id: uuid.UUID
+class MeResponse(CamelModel):
+    user_id: Any
     user_uuid: str = Field(
         ...,
         description="Stable public UUID for mapping data to this user. Not a replacement for Bearer authentication.",
@@ -198,7 +215,7 @@ class MeResponse(BaseModel):
     must_change_password: bool = False
 
 
-class SignupRequest(BaseModel):
+class SignupRequest(CamelModel):
     email: str = Field(..., min_length=1)
     password: str = Field(..., min_length=8)
     first_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
@@ -217,48 +234,48 @@ class SignupRequest(BaseModel):
     country: Optional[str] = Field(default=None, min_length=2, max_length=80)
 
 
-class PasswordResetStartRequest(BaseModel):
+class PasswordResetStartRequest(CamelModel):
     email: str = Field(..., min_length=1)
     otp_delivery_channel: OtpChannel = Field(default=DEFAULT_OTP_CHANNEL)
     otp_delivery_mode: OtpMode = Field(default=DEFAULT_OTP_MODE)
 
 
-class PasswordResetConfirmRequest(BaseModel):
+class PasswordResetConfirmRequest(CamelModel):
     email: str = Field(..., min_length=1)
     code: str = Field(..., min_length=4, max_length=10)
     new_password: str = Field(..., min_length=8)
 
 
-class PasswordChangeStartResponse(BaseModel):
+class PasswordChangeStartResponse(CamelModel):
     ok: bool = True
 
 
-class PasswordResetStartResponse(BaseModel):
+class PasswordResetStartResponse(CamelModel):
     ok: bool = True
 
 
-class PasswordResetConfirmResponse(BaseModel):
+class PasswordResetConfirmResponse(CamelModel):
     ok: bool = True
 
 
-class PasswordChangeConfirmRequest(BaseModel):
+class PasswordChangeConfirmRequest(CamelModel):
     code: str = Field(..., min_length=4, max_length=10)
     new_password: str = Field(..., min_length=8)
 
 
-class PasswordChangeConfirmResponse(BaseModel):
+class PasswordChangeConfirmResponse(CamelModel):
     ok: bool = True
 
 
-class UpdateProfileRequest(BaseModel):
+class UpdateProfileRequest(CamelModel):
     first_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     last_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     phone: Optional[str] = Field(default=None, min_length=3, max_length=32)
 
 
-class UpdateProfileResponse(BaseModel):
+class UpdateProfileResponse(CamelModel):
     ok: bool = True
-    user_id: uuid.UUID
+    user_id: Any
     user_uuid: str
     email: EmailStr
     first_name: Optional[str] = None
@@ -266,26 +283,26 @@ class UpdateProfileResponse(BaseModel):
     phone: Optional[str] = None
 
 
-class DeactivateAccountResponse(BaseModel):
+class DeactivateAccountResponse(CamelModel):
     ok: bool = True
-    user_id: uuid.UUID
+    user_id: Any
     user_uuid: str
     email: EmailStr
     message: str
 
 
-class RefreshTokenRequest(BaseModel):
+class RefreshTokenRequest(CamelModel):
     refresh_token: str = Field(..., min_length=10)
 
 
-class EmailStatusResponse(BaseModel):
+class EmailStatusResponse(CamelModel):
     smtp_configured: bool
     graph_configured: bool
     ses_api_enabled: bool
     delivery_mode: str
 
 
-class EmailHealthResponse(BaseModel):
+class EmailHealthResponse(CamelModel):
     graph_ok: bool
     graph_detail: Optional[str] = None
     smtp_ok: Optional[bool] = None
@@ -293,31 +310,32 @@ class EmailHealthResponse(BaseModel):
     delivery_mode: str
 
 
-class EmailTestRequest(BaseModel):
+class EmailTestRequest(CamelModel):
     to_email: EmailStr
     subject: Optional[str] = "ErrandBridge email test"
     body_text: Optional[str] = "This is a test email from the ErrandBridge backend."
 
 
-class EmailTestResponse(BaseModel):
+class EmailTestResponse(CamelModel):
     delivered: bool
     provider: str
     detail: Optional[str] = None
 
 
-class SmsStatusResponse(BaseModel):
+class SmsStatusResponse(CamelModel):
     twilio_configured: bool
     twilio_dependency: bool
     default_country_code: Optional[str] = None
 
 
-class AdminDiagnosticsResponse(BaseModel):
+class AdminDiagnosticsResponse(CamelModel):
     email: EmailStr
     exists: bool
     is_email_verified: bool = False
     is_admin: bool = False
-    user_id: Optional[uuid.UUID] = None
+    user_id: Optional[Any] = None
     user_uuid: Optional[str] = None
+    must_change_password: bool = False
 
 
 def _public_user_uuid(user: User) -> str:
@@ -820,7 +838,7 @@ def _build_auth_response(
             else is_email_verified
         ),
         is_admin=is_admin,
-        must_change_password=user.must_change_password,
+        must_change_password=bool(getattr(user, "must_change_password", False)),
     )
 
 
@@ -1254,7 +1272,7 @@ async def _get_or_create_oauth_user(
         first_name=fn or "Customer",
         last_name=ln or "",
         is_email_verified=True,
-        must_change_password=False,
+        must_change_password=True,
         is_pilot=(role == "pilot"),
         address_verification_status=(
             "pending_manual" if role == "pilot" else "pending"
@@ -1280,6 +1298,7 @@ def _oauth_popup_result_html(
         "ok": bool(ok),
         "provider": provider,
         "access_token": access_token or "",
+        "accessToken": access_token or "",
         "error": error or "",
     }
     native_redirect_url = ""
@@ -1293,6 +1312,7 @@ def _oauth_popup_result_html(
                     "ok": "1" if ok else "0",
                     "provider": provider,
                     "access_token": access_token or "",
+                    "accessToken": access_token or "",
                     "error": error or "",
                 }
             )
@@ -1918,7 +1938,13 @@ async def swagger_login(
     return {"access_token": auth_response.token, "token_type": "bearer"}
 
 
-@router.post("/otp/request")
+@router.post(
+    "/otp/request",
+    response_model=OtpRequestResponse,
+    operation_id="requestAuthOtp",
+    summary="Request authentication OTP",
+    description="Generate and dispatch a one-time passcode to user email for passwordless login or verification.",
+)
 async def otp_request(
     payload: OtpSendRequestSimple, db: AsyncSession = Depends(get_db)
 ):
@@ -2176,7 +2202,13 @@ async def me(
     )
 
 
-@router.post("/change-password")
+@router.post(
+    "/change-password",
+    response_model=ChangePasswordResponse,
+    operation_id="changeAccountPassword",
+    summary="Change account password",
+    description="Update user password after verifying current credential.",
+)
 async def change_password(
     payload: ChangePasswordRequest,
     authorization: Optional[str] = Header(default=None),

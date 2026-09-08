@@ -21,6 +21,25 @@ from app.utils.admin_utils import (
     admin_emails,
     is_elevated_admin_email,
 )
+from app.dto import (
+    AdminDeleteErrandResponse,
+    AdminErrandStatusUpdateResponse,
+    AdminAssignPilotResponse,
+    AdminPilotDispatchStatusResponse,
+    AdminPilotDocumentReviewResponse,
+    AdminReviewAttachmentResponse,
+    AdminCustomersByCountryResponse,
+    AdminUnverifiedCustomersResponse,
+    AdminPurgeUnverifiedCustomersResponse,
+    FlexibleId,
+    AdminMetricsOverviewResponse,
+    AdminPilotDocumentItem,
+    AdminPilotEmploymentApplicationItem,
+    AdminVoiceCallItem,
+    AdminVoiceCallEventItem,
+    AdminCustomerListItem,
+    AdminCustomerStatsResponse,
+)
 from auth import decode_access_token
 from database import get_db
 from models import (
@@ -113,7 +132,7 @@ def _can_delete_other_admin_accounts(actor: User) -> bool:
 
 
 class AdminUserOut(BaseModel):
-    id: uuid.UUID
+    id: FlexibleId
     email: str
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -123,7 +142,7 @@ class AdminUserOut(BaseModel):
 
 
 class AdminErrandOut(BaseModel):
-    id: uuid.UUID
+    id: FlexibleId
     reference_number: Optional[str] = None
     title: str
     description: Optional[str] = None
@@ -131,15 +150,15 @@ class AdminErrandOut(BaseModel):
     pickup_location: Optional[str] = None
     dropoff_location: Optional[str] = None
     status: str
-    pilot_id: Optional[uuid.UUID] = None
+    pilot_id: Optional[FlexibleId] = None
     # Admin-only disclosure: admins can see full customer info + timestamps.
-    user_id: Optional[uuid.UUID] = None
+    user_id: Optional[FlexibleId] = None
     customer_name: Optional[str] = None
     customer_email: Optional[str] = None
     customer_phone: Optional[str] = None
     created_at: Optional[datetime] = None
     assigned_at: Optional[datetime] = None
-    confirmation_sent_at: Optional[uuid.UUID] = None
+    confirmation_sent_at: Optional[int] = None
 
     # Helpful operational fields (best-effort; may be null in older rows)
     amount: Optional[float] = None
@@ -148,17 +167,17 @@ class AdminErrandOut(BaseModel):
 
 
 class AdminErrandChatOut(BaseModel):
-    errand_id: uuid.UUID
+    errand_id: FlexibleId
     reference_number: Optional[str] = None
     status: str
     created_at: Optional[datetime] = None
 
-    user_id: Optional[uuid.UUID] = None
+    user_id: Optional[FlexibleId] = None
     customer_name: Optional[str] = None
     customer_email: Optional[str] = None
     customer_phone: Optional[str] = None
 
-    pilot_id: Optional[uuid.UUID] = None
+    pilot_id: Optional[FlexibleId] = None
     pilot_name: Optional[str] = None
     pilot_email: Optional[str] = None
     pilot_phone: Optional[str] = None
@@ -179,10 +198,10 @@ class AdminPilotDocumentReviewIn(BaseModel):
 
 
 class AdminIssueOut(BaseModel):
-    errand_id: uuid.UUID
+    errand_id: FlexibleId
     reference_number: Optional[str] = None
     errand_status: str
-    user_id: uuid.UUID
+    user_id: Optional[FlexibleId] = None
     created_at: Optional[datetime] = None
 
     issue_reason: Optional[str] = None
@@ -203,7 +222,7 @@ class AdminIssueOut(BaseModel):
 
 class AdminDeleteUserOut(BaseModel):
     deleted: bool
-    user_id: uuid.UUID
+    user_id: FlexibleId
     email: Optional[str] = None
 
 
@@ -547,7 +566,7 @@ async def generate_promo_code(
     return _promo_to_admin_out(promo, target)
 
 
-@router.get("/users", response_model=list[AdminUserOut])
+@router.get("/users", response_model=list[AdminUserOut], operation_id="listAdminUsers", summary="List user accounts", description="Administrative list of all user accounts.")
 async def list_users(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -585,9 +604,9 @@ async def list_users(
     ]
 
 
-@router.delete("/users/{user_id}", response_model=AdminDeleteUserOut)
+@router.delete("/users/{user_id}", response_model=AdminDeleteUserOut, operation_id="deleteAdminUser", summary="Delete user account", description="Permanently delete a user account with safety guards.")
 async def delete_user(
-    user_id: uuid.UUID,
+    user_id: FlexibleId,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
@@ -614,7 +633,7 @@ async def delete_user(
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if int(user_id) == int(admin.id):
+    if str(user_id) == str(admin.id):
         raise HTTPException(
             status_code=400,
             detail="You cannot delete the currently authenticated admin user.",
@@ -661,7 +680,7 @@ async def delete_user(
     return AdminDeleteUserOut(deleted=True, user_id=user_id, email=target_email)
 
 
-@router.options("/users/{user_id}")
+@router.options("/users/{user_id}", include_in_schema=False)
 async def options_delete_user(user_id: uuid.UUID):
     # Let the global CORS middleware (if enabled) answer preflight cleanly.
     # Explicit route avoids 405 in setups where middleware isn't catching OPTIONS.
@@ -798,12 +817,12 @@ async def bulk_delete_users(
     )
 
 
-@router.options("/users/bulk-delete")
+@router.options("/users/bulk-delete", include_in_schema=False)
 async def options_bulk_delete_users():
     return Response(status_code=200)
 
 
-@router.get("/errands", response_model=list[AdminErrandOut])
+@router.get("/errands", response_model=list[AdminErrandOut], operation_id="listAdminErrands", summary="List admin errands", description="Platform-wide administrative errand index with filters.")
 async def list_errands(
     request: Request,
     user_id: Optional[uuid.UUID] = None,
@@ -856,7 +875,7 @@ async def list_errands(
     ]
 
 
-@router.get("/errand-chats", response_model=list[AdminErrandChatOut])
+@router.get("/errand-chats", response_model=list[AdminErrandChatOut], operation_id="listAdminErrandChats", summary="List errand chats", description="List recent chat threads across errands.")
 async def list_errand_chats(
     request: Request,
     q: Optional[str] = None,
@@ -998,7 +1017,7 @@ async def list_errand_chats(
     return out
 
 
-@router.get("/errands/{errand_id}", response_model=AdminErrandOut)
+@router.get("/errands/{errand_id}", response_model=AdminErrandOut, operation_id="getAdminErrandDetail", summary="Get admin errand detail", description="Detailed administrative errand inspection.")
 async def get_errand_detail(
     errand_id: uuid.UUID,
     request: Request,
@@ -1046,7 +1065,7 @@ async def get_errand_detail(
     )
 
 
-@router.get("/attachments", response_model=list[AdminAttachmentOut])
+@router.get("/attachments", response_model=list[AdminAttachmentOut], operation_id="listAdminAttachments", summary="List admin attachments", description="Administrative listing of all user and errand attachments.")
 async def list_attachments(
     authorization: Optional[str] = Header(default=None),
     errand_id: Optional[uuid.UUID] = None,
@@ -1105,7 +1124,13 @@ async def list_attachments(
     return out
 
 
-@router.post("/attachments/{attachment_id}/review")
+@router.post(
+    "/attachments/{attachment_id}/review",
+    response_model=AdminReviewAttachmentResponse,
+    operation_id="reviewAdminAttachment",
+    summary="Review errand attachment",
+    description="Approve or reject an errand verification attachment.",
+)
 async def review_attachment(
     attachment_id: int,
     payload: AdminAttachmentReviewIn,
@@ -1226,7 +1251,13 @@ async def review_attachment(
     }
 
 
-@router.post("/errands/{errand_id}/status")
+@router.post(
+    "/errands/{errand_id}/status",
+    response_model=AdminErrandStatusUpdateResponse,
+    operation_id="updateAdminErrandStatus",
+    summary="Update errand lifecycle status",
+    description="Administratively advance or update the status of an errand.",
+)
 async def update_errand_status(
     errand_id: uuid.UUID,
     payload: AdminErrandStatusUpdateIn,
@@ -1307,7 +1338,13 @@ async def update_errand_status(
     }
 
 
-@router.delete("/errands/{errand_id}")
+@router.delete(
+    "/errands/{errand_id}",
+    response_model=AdminDeleteErrandResponse,
+    operation_id="deleteAdminErrand",
+    summary="Delete unstarted errand",
+    description="Remove a pending or cancelled errand and cascading associations.",
+)
 async def delete_errand(
     errand_id: uuid.UUID,
     authorization: Optional[str] = Header(default=None),
@@ -1406,14 +1443,20 @@ async def delete_errand(
     return {"deleted": True, "id": errand_id}
 
 
-@router.options("/errands/{errand_id}")
+@router.options("/errands/{errand_id}", include_in_schema=False)
 async def options_delete_errand(errand_id: uuid.UUID):
     # Let the global CORS middleware (if enabled) answer preflight cleanly.
     # Explicit route avoids 405 in setups where middleware isn't catching OPTIONS.
     return Response(status_code=200)
 
 
-@router.post("/errands/{errand_id}/assign-pilot")
+@router.post(
+    "/errands/{errand_id}/assign-pilot",
+    response_model=AdminAssignPilotResponse,
+    operation_id="assignAdminPilotToErrand",
+    summary="Assign pilot to errand",
+    description="Directly dispatch an eligible pilot to an active errand.",
+)
 async def assign_pilot_to_errand(
     errand_id: uuid.UUID,
     payload: AdminAssignPilotIn,
@@ -1517,7 +1560,13 @@ async def assign_pilot_to_errand(
     }
 
 
-@router.post("/pilots/{pilot_id}/dispatch-status", response_model=dict)
+@router.post(
+    "/pilots/{pilot_id}/dispatch-status",
+    response_model=AdminPilotDispatchStatusResponse,
+    operation_id="updateAdminPilotDispatchStatus",
+    summary="Modify pilot dispatch privileges",
+    description="Enable, disable, or permanently restrict pilot access to open dispatches.",
+)
 async def update_pilot_dispatch_status(
     pilot_id: uuid.UUID,
     payload: AdminPilotDispatchUpdateIn,
@@ -1669,7 +1718,7 @@ async def admin_download_attachment(
     )
 
 
-@router.get("/pilot-documents", response_model=list)
+@router.get("/pilot-documents", response_model=list[AdminPilotDocumentItem], operation_id="listAdminPilotDocuments", summary="List pilot compliance documents", description="Retrieve pilot driver licenses, IDs, and insurance filings.")
 async def list_pilot_documents(
     authorization: Optional[str] = Header(default=None),
     status: Optional[str] = None,
@@ -1752,7 +1801,13 @@ async def download_pilot_document(
     )
 
 
-@router.post("/pilot-documents/{document_id}/review", response_model=dict)
+@router.post(
+    "/pilot-documents/{document_id}/review",
+    response_model=AdminPilotDocumentReviewResponse,
+    operation_id="reviewAdminPilotDocument",
+    summary="Review pilot onboarding document",
+    description="Approve or reject a submitted driver license or insurance document.",
+)
 async def review_pilot_document(
     document_id: int,
     payload: AdminPilotDocumentReviewIn,
@@ -1798,7 +1853,7 @@ async def review_pilot_document(
     return {"success": True, "status": document.status}
 
 
-@router.get("/pilot-employment/applications", response_model=list)
+@router.get("/pilot-employment/applications", response_model=list[AdminPilotEmploymentApplicationItem], operation_id="listAdminPilotEmploymentApplications", summary="List pilot job applications", description="Retrieve submitted pilot onboarding applications and resumes.")
 async def list_pilot_employment_applications(
     authorization: Optional[str] = Header(default=None),
     status: Optional[str] = None,
@@ -2126,7 +2181,7 @@ class CustomerDetailOut(BaseModel):
     account_age_days: int
 
 
-@router.get("/customers/stats", response_model=dict)
+@router.get("/customers/stats", response_model=AdminCustomerStatsResponse, operation_id="getAdminCustomerStats", summary="Get customer statistics", description="Demographic and verification breakdown of platform customer accounts.")
 async def get_customer_statistics(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -2170,7 +2225,7 @@ async def get_customer_statistics(
     }
 
 
-@router.get("/calls", response_model=list)
+@router.get("/calls", response_model=list[AdminVoiceCallItem], operation_id="listAdminVoiceCalls", summary="List voice call sessions", description="Audit logs of customer-pilot masked call connections.")
 async def list_voice_calls(
     authorization: Optional[str] = Header(default=None),
     limit: int = 50,
@@ -2209,7 +2264,7 @@ async def list_voice_calls(
     ]
 
 
-@router.get("/calls/{session_id}/events", response_model=list)
+@router.get("/calls/{session_id}/events", response_model=list[AdminVoiceCallEventItem], operation_id="listAdminVoiceCallEvents", summary="List telephony session events", description="Audit webhook timeline events for a given voice session.")
 async def list_voice_call_events(
     session_id: int,
     authorization: Optional[str] = Header(default=None),
@@ -2306,7 +2361,21 @@ async def download_voice_transcript(
     )
 
 
-@router.get("/metrics/overview", response_model=dict)
+@router.get(
+    "/dashboard",
+    response_model=AdminMetricsOverviewResponse,
+    operation_id="getAdminDashboard",
+    summary="Get admin console dashboard overview",
+    description="Consolidated operational metrics and activity summary for administrator portal.",
+)
+async def get_admin_dashboard(
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> AdminMetricsOverviewResponse:
+    return await get_admin_metrics_overview(authorization=authorization, db=db)
+
+
+@router.get("/metrics/overview", response_model=AdminMetricsOverviewResponse, operation_id="getAdminMetricsOverview", summary="Get admin operational metrics", description="Platform-wide monitoring metrics including user counts, errand funnel, and site visits.")
 async def get_admin_metrics_overview(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -2698,7 +2767,7 @@ async def reset_admin_visit_metrics(
     return {"ok": True, "deleted": int(deleted)}
 
 
-@router.get("/customers/{user_id}", response_model=CustomerDetailOut)
+@router.get("/customers/{user_id}", response_model=CustomerDetailOut, operation_id="getAdminCustomerDetail", summary="Get customer details", description="Retrieve complete customer profile and errand history.")
 async def get_customer_details(
     user_id: uuid.UUID,
     authorization: Optional[str] = Header(default=None),
@@ -2739,7 +2808,7 @@ async def get_customer_details(
     )
 
 
-@router.get("/customers", response_model=list)
+@router.get("/customers", response_model=list[AdminCustomerListItem], operation_id="listAdminCustomers", summary="List all platform customers", description="Administrative directory of registered customers.")
 async def list_all_customers(
     authorization: Optional[str] = Header(default=None),
     verified_only: bool = False,
@@ -2792,7 +2861,13 @@ async def list_all_customers(
     ]
 
 
-@router.get("/customers/location/{country}")
+@router.get(
+    "/customers/location/{country}",
+    response_model=AdminCustomersByCountryResponse,
+    operation_id="getAdminCustomersByCountry",
+    summary="Get customers by country",
+    description="Filter customer database by ISO country identifier.",
+)
 async def get_customers_by_country(
     country: str,
     authorization: Optional[str] = Header(default=None),
@@ -2828,7 +2903,13 @@ async def get_customers_by_country(
     }
 
 
-@router.get("/customers/unverified/list")
+@router.get(
+    "/customers/unverified/list",
+    response_model=AdminUnverifiedCustomersResponse,
+    operation_id="listAdminUnverifiedCustomers",
+    summary="List unverified customer accounts",
+    description="Retrieve customers who have not completed email verification.",
+)
 async def get_unverified_customers(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -2865,7 +2946,13 @@ async def get_unverified_customers(
     }
 
 
-@router.post("/customers/unverified/purge", response_model=dict)
+@router.post(
+    "/customers/unverified/purge",
+    response_model=AdminPurgeUnverifiedCustomersResponse,
+    operation_id="purgeAdminUnverifiedCustomers",
+    summary="Bulk purge unverified accounts",
+    description="Permanently remove accounts that have never confirmed email verification.",
+)
 async def purge_unverified_customers(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),

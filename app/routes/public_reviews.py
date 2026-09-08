@@ -10,7 +10,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Errand, User
 
-router = APIRouter(prefix="/public", tags=["public"])
+from datetime import datetime
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class PublicReviewItem(BaseModel):
+    """Anonymized customer review for marketing display."""
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    id: str = Field(..., description="Review identifier")
+    name: str = Field(..., description="Anonymized customer name")
+    region: str = Field(..., description="Service location/region")
+    rating: int = Field(..., ge=1, le=5, description="Star rating (1-5)")
+    quote: str = Field(..., description="Review quote snippet")
+    reviewed_at: Optional[datetime] = Field(default=None, alias="reviewedAt", description="Review completion timestamp")
+
+
+class PublicReviewsResponse(BaseModel):
+    """Container for public verified reviews."""
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    reviews: list[PublicReviewItem] = Field(default_factory=list, description="List of reviews")
+
+router = APIRouter(prefix="/public", tags=["09 Public & Reviews"])
 
 
 def _compact_place(value: Optional[str]) -> str:
@@ -80,7 +102,13 @@ def _truncate_quote(value: Optional[str], max_len: int = 220) -> str:
     return f"{text[: max(0, max_len - 1)].rstrip()}…"
 
 
-@router.get("/reviews", response_model=dict)
+@router.get(
+    "/reviews",
+    response_model=PublicReviewsResponse,
+    operation_id="listPublicReviews",
+    summary="List public customer reviews",
+    description="Return recent verified and anonymized customer reviews suitable for landing page display.",
+)
 async def list_public_reviews(
     limit: int = Query(default=12, ge=1, le=50),
     db: AsyncSession = Depends(get_db),

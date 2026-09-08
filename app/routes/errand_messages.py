@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from app.utils.admin_utils import require_admin_user
+from app.dto import ErrandMessagesResponse, FlexibleId
 from auth import decode_access_token
 from database import get_db
 from models import Errand, ErrandMessage, User
@@ -147,7 +148,7 @@ class ErrandMessageOut(BaseModel):
     created_at: datetime
 
 
-@router.get("/{errand_id}/messages", response_model=dict)
+@router.get("/{errand_id}/messages", response_model=ErrandMessagesResponse, operation_id="listErrandMessages", summary="Get errand chat messages", description="Retrieve chronological chat history between customer and pilot for an errand.")
 async def list_errand_messages(
     errand_id: str,
     limit: int = 50,
@@ -158,8 +159,8 @@ async def list_errand_messages(
     errand = await _require_participant(db, errand_id=errand_id, user=user)
 
     viewer_is_admin = await _is_admin(db, user)
-    errand_owner_id = int(errand.user_id)
-    errand_pilot_id = int(errand.pilot_id) if errand.pilot_id else None
+    errand_owner_id = str(errand.user_id)
+    errand_pilot_id = str(errand.pilot_id) if errand.pilot_id else None
 
     safe_limit = max(1, min(int(limit or 50), 200))
 
@@ -167,7 +168,7 @@ async def list_errand_messages(
     result = await db.execute(
         select(ErrandMessage, User)
         .join(User, User.id == ErrandMessage.sender_id)
-        .where(ErrandMessage.errand_id == int(errand.id))
+        .where(ErrandMessage.errand_id == errand.id)
         .order_by(desc(ErrandMessage.created_at), desc(ErrandMessage.id))
         .limit(safe_limit)
     )
@@ -179,12 +180,12 @@ async def list_errand_messages(
     messages: list[dict] = []
     for msg, sender in rows:
         sender_type = "unknown"
-        if errand_pilot_id and int(sender.id) == int(errand_pilot_id):
+        if errand_pilot_id and str(sender.id) == str(errand_pilot_id):
             sender_type = "pilot"
-        elif int(sender.id) == errand_owner_id:
+        elif str(sender.id) == str(errand_owner_id):
             sender_type = "customer"
 
-        mine = int(sender.id) == int(user.id)
+        mine = str(sender.id) == str(user.id)
         body = msg.message
         if not viewer_is_admin and not mine:
             body = _redact_contact_info(body)
@@ -197,9 +198,9 @@ async def list_errand_messages(
 
         messages.append(
             {
-                "id": int(msg.id),
+                "id": msg.id,
                 "message": body,
-                "sender_id": int(sender.id),
+                "sender_id": sender.id,
                 "sender_type": sender_type,
                 "sender_name": sender_name,
                 "mine": mine,
@@ -210,7 +211,7 @@ async def list_errand_messages(
     return {"messages": messages}
 
 
-@router.post("/{errand_id}/messages", response_model=ErrandMessageOut)
+@router.post("/{errand_id}/messages", response_model=ErrandMessageOut, operation_id="sendErrandMessage", summary="Send errand chat message", description="Post a message in the direct errand conversation thread.")
 async def send_errand_message(
     errand_id: str,
     payload: ErrandMessageIn,
@@ -235,7 +236,7 @@ async def send_errand_message(
     if not text:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    msg = ErrandMessage(errand_id=int(errand.id), sender_id=int(user.id), message=text)
+    msg = ErrandMessage(errand_id=errand.id, sender_id=user.id, message=text)
     db.add(msg)
     await db.commit()
     await db.refresh(msg)
