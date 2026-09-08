@@ -670,12 +670,19 @@ else:
         bool(getattr(ssl_context, "check_hostname", False)),
         flush=True,
     )
-    connect_args = {"ssl": ssl_context}
+    connect_args = {
+        "ssl": ssl_context,
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    }
 
 if IS_ALEMBIC:
     # For migrations, use a sync engine.
     engine = create_engine(DATABASE_URL, echo=False, poolclass=NullPool)
 else:
+    if "statement_cache_size" not in connect_args:
+        connect_args["statement_cache_size"] = 0
+        connect_args["prepared_statement_cache_size"] = 0
     engine = create_async_engine(
         DATABASE_URL,
         echo=False,
