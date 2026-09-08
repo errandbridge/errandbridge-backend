@@ -33,6 +33,7 @@ AUTH_SAFE_USER_COLUMNS = (
     User.id_verification_status,
     User.address_verification_status,
     User.is_pilot,
+    User.must_change_password,
 )
 
 AUTH_SAFE_USER_LOAD_OPTIONS = (load_only(*AUTH_SAFE_USER_COLUMNS),)
