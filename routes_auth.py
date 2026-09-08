@@ -1247,11 +1247,14 @@ async def _get_or_create_oauth_user(
 
     random_password = secrets.token_urlsafe(32)
     user = User(
+        id=uuid.uuid4(),
+        user_uuid=str(uuid.uuid4()),
         email=email,
         password_hash=hash_password(random_password),
         first_name=fn or "Customer",
         last_name=ln or "",
         is_email_verified=True,
+        must_change_password=False,
         is_pilot=(role == "pilot"),
         address_verification_status=(
             "pending_manual" if role == "pilot" else "pending"
@@ -1833,7 +1836,16 @@ async def google_oauth_callback(
             )
             if resp.status_code != 200:
                 print(f"[GOOGLE AUTH] Token exchange error: {resp.status_code} {resp.text}", flush=True)
-            resp.raise_for_status()
+                err_detail = resp.text
+                try:
+                    err_json = resp.json()
+                    err_detail = err_json.get("error_description") or err_json.get("error") or resp.text
+                except Exception:
+                    pass
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Google token exchange failed: {err_detail}",
+                )
             token_payload = resp.json()
             id_token = token_payload.get("id_token") or ""
             claims = await _verify_google_id_token(
@@ -1857,9 +1869,9 @@ async def google_oauth_callback(
             last_name=last_name,
             allow_pilot_signup=(allow_pilot_signup if role == "pilot" else False),
         )
+        user_id = app_user.id
         await db.commit()
-        await db.refresh(app_user)
-        access_token = create_access_token(user_id=app_user.id)
+        access_token = create_access_token(user_id=user_id)
         return HTMLResponse(
             content=_oauth_popup_result_html(
                 origin=origin,
@@ -1889,7 +1901,7 @@ async def google_oauth_callback(
                 origin=origin,
                 ok=False,
                 provider="google",
-                error="Google sign-in failed",
+                error=f"Google sign-in failed: {e}" if str(e) else "Google sign-in failed",
                 native_redirect_uri=native_redirect_uri,
             ),
             status_code=status.HTTP_200_OK,
