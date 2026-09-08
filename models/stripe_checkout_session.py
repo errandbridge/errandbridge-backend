@@ -1,3 +1,5 @@
+import uuid
+from sqlalchemy import Uuid
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
 from sqlalchemy.sql import func
 
@@ -7,10 +9,10 @@ from database import Base
 class StripeCheckoutSession(Base):
     __tablename__ = "stripe_checkout_sessions"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
     stripe_session_id = Column(String, nullable=False, unique=True, index=True)
 
-    user_id = Column(Integer, nullable=True, index=True)
+    user_id = Column(String, nullable=True, index=True)
     kind = Column(
         String, nullable=False, default="payment"
     )  # payment | subscription | tip
@@ -23,7 +25,7 @@ class StripeCheckoutSession(Base):
     stripe_customer_id = Column(String, nullable=True, index=True)
     stripe_subscription_id = Column(String, nullable=True, index=True)
 
-    used_for_errand_id = Column(Integer, nullable=True, index=True)
+    used_for_errand_id = Column(String, nullable=True, index=True)
     used_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(

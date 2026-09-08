@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+import uuid
+from sqlalchemy import Column, Uuid, Integer, String, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from database import Base
 
@@ -6,10 +7,8 @@ from database import Base
 class PilotEmploymentAttachment(Base):
     __tablename__ = "pilot_employment_attachments"
 
-    id = Column(Integer, primary_key=True, index=True)
-    application_id = Column(
-        Integer,
-        ForeignKey("pilot_employment_applications.id"),
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
+    application_id = Column(Uuid, ForeignKey("pilot_employment_applications.id"),
         nullable=False,
         index=True,
     )

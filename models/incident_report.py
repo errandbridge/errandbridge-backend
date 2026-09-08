@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+import uuid
+from sqlalchemy import Column, Uuid, Integer, String, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from database import Base
 
@@ -6,9 +7,9 @@ from database import Base
 class IncidentReport(Base):
     __tablename__ = "incident_reports"
 
-    id = Column(Integer, primary_key=True, index=True)
-    errand_id = Column(Integer, ForeignKey("errands.id"), nullable=False, index=True)
-    pilot_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
+    errand_id = Column(Uuid, ForeignKey("errands.id"), nullable=False, index=True)
+    pilot_id = Column(Uuid, ForeignKey("users.id"), nullable=True, index=True)
     incident_type = Column(String, nullable=False)
     description = Column(String, nullable=True)
     status = Column(String, nullable=False, default="open")

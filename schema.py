@@ -1,4 +1,5 @@
 from __future__ import annotations
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 import asyncio
@@ -85,7 +86,7 @@ def _normalize_signup_email(value: str) -> str:
 # Strawberry type for errand event history
 @strawberry.type
 class ErrandEventType:
-    id: int
+    id: uuid.UUID
     eventType: str
     oldStatus: str | None
     newStatus: str | None
@@ -107,7 +108,7 @@ class ErrandTimelineEvent:
     This avoids the N+1 cost of querying `errand.history` for many errands.
     """
 
-    id: int
+    id: uuid.UUID
     errandId: int
     referenceNumber: str
     errandTitle: str
@@ -122,21 +123,21 @@ class ErrandTimelineEvent:
 # Strawberry type for errand attachments
 @strawberry.type
 class AttachmentType:
-    id: int
+    id: uuid.UUID
     filename: str
     contentType: str
     sizeBytes: int
     createdAt: datetime
 
 
-def _make_reference_number(errand_id: int) -> str:
+def _make_reference_number(errand_id: uuid.UUID) -> str:
     """Generate a stable customer-facing reference number.
 
     Format: EB-<id>-<4-digit-check>
     The check portion is deterministic from `id`.
     """
-    check = (int(errand_id) * 7919) % 10000
-    return f"EB-{int(errand_id)}-{check:04d}"
+    check = (int(str(errand_id).replace("-", "")[:8], 16) * 7919) % 10000
+    return f"EB-{str(errand_id)[:8].upper()}-{check:04d}"
 
 
 # Status progression (v1)
@@ -205,8 +206,8 @@ def build_referral_code_for_user(user: User | None) -> str | None:
     ]
     letters = "".join(ch for part in seed_parts for ch in part.upper() if ch.isalpha())
     prefix = (letters[:4] or "EBCL").ljust(4, "X")
-    checksum = (int(user.id) * 7919) % 10000
-    return f"{prefix}{int(user.id)}{checksum:04d}"
+    checksum = (str(user.id) * 7919) % 10000
+    return f"{prefix}{str(user.id)[:8].upper()}{checksum:04d}"
 
 
 def build_client_lifecycle_snapshot(
@@ -271,12 +272,12 @@ def build_client_lifecycle_snapshot(
     latest_unused_expiry = REFERRAL_CAMPAIGN_END if unused_referral_promos else None
 
     return {
-        "userId": int(user.id) if is_logged_in else None,
+        "userId": str(user.id) if is_logged_in else None,
         "isLoggedIn": is_logged_in,
         "hasSubmittedRequest": bool(errands),
         "isReturningClient": len(errands) > 0,
         "completedErrandCount": len(completed_errands),
-        "pendingReviewErrandIds": [int(errand.id) for errand in pending_review_errands],
+        "pendingReviewErrandIds": [str(errand.id) for errand in pending_review_errands],
         "lastCompletedErrandId": (
             int(completed_errands[0].id) if completed_errands else None
         ),
@@ -392,7 +393,7 @@ def build_assigned_pilot_trust_snapshot(
         )
 
     return {
-        "pilotId": int(pilot.id),
+        "pilotId": str(pilot.id),
         "displayName": _build_user_display_name(pilot),
         "firstName": getattr(pilot, "first_name", None),
         "lastName": getattr(pilot, "last_name", None),
@@ -410,7 +411,7 @@ def build_assigned_pilot_trust_snapshot(
 class AssignedPilotTrustReview:
     title: str
     referenceNumber: str
-    rating: Optional[int]
+    rating: Optional[uuid.UUID]
     reviewNotes: Optional[str]
     reviewedAt: Optional[datetime]
 
@@ -485,13 +486,13 @@ class Errand:
         if not pilot_id:
             return None
 
-        pilot = await session.get(User, int(pilot_id))
+        pilot = await session.get(User, str(pilot_id))
         if not pilot or not getattr(pilot, "is_pilot", False):
             return None
 
         reviewed_result = await session.execute(
             select(ErrandModel)
-            .where(ErrandModel.pilot_id == int(pilot_id))
+            .where(ErrandModel.pilot_id == str(pilot_id))
             .where(ErrandModel.review_status == "reviewed")
             .where(ErrandModel.reviewer_rating.is_not(None))
             .order_by(
@@ -507,7 +508,7 @@ class Errand:
 
         completed_count_result = await session.execute(
             select(func.count(ErrandModel.id))
-            .where(ErrandModel.pilot_id == int(pilot_id))
+            .where(ErrandModel.pilot_id == str(pilot_id))
             .where(ErrandModel.status.in_(["accepted", "delivered", "completed"]))
         )
         completed_errands_count = completed_count_result.scalar() or 0
@@ -543,7 +544,7 @@ class Errand:
             ],
         )
 
-    id: int
+    id: uuid.UUID
     referenceNumber: str
     title: str
     description: Optional[str]
@@ -553,10 +554,10 @@ class Errand:
     preferredTime: Optional[str]
     priorityLevel: Optional[str]
     distanceKm: Optional[float]
-    finalPriceMinor: Optional[int]
+    finalPriceMinor: Optional[uuid.UUID]
     finalPriceCurrency: Optional[str]
     sensitivity: Optional[str]
-    confirmationSentAt: Optional[int]
+    confirmationSentAt: Optional[uuid.UUID]
     pickupLocation: Optional[str]
     dropoffLocation: Optional[str]
     note: Optional[str]  # Added note field
@@ -578,13 +579,13 @@ class Errand:
     pickupTimeSlotDate: Optional[str]
 
     # Assignment fields
-    assignedTo: Optional[int]  # Admin user ID
+    assignedTo: Optional[uuid.UUID]  # Admin user ID
     assignedAt: Optional[datetime]
-    pilotId: Optional[int]
+    pilotId: Optional[uuid.UUID]
 
     # Review fields
     reviewStatus: Optional[str]  # 'pending', 'reviewed', 'appealed'
-    reviewerRating: Optional[int]  # 1-5 stars
+    reviewerRating: Optional[uuid.UUID]  # 1-5 stars
     reviewerNotes: Optional[str]
     reviewCompletedAt: Optional[datetime]
 
@@ -599,7 +600,7 @@ class CreateErrandInput:
     preferredTime: Optional[str] = None
     priorityLevel: Optional[str] = None
     distanceKm: Optional[float] = None
-    finalPriceMinor: Optional[int] = None
+    finalPriceMinor: Optional[uuid.UUID] = None
     finalPriceCurrency: Optional[str] = None
     sensitivity: Optional[str] = None
     pickupLocation: Optional[str] = None
@@ -617,7 +618,7 @@ class CreateErrandInput:
     # unless the user has an active Plus subscription.
     paymentSessionId: Optional[str] = None
 
-    userId: Optional[int] = None
+    userId: Optional[uuid.UUID] = None
 
 
 @strawberry.input
@@ -647,13 +648,13 @@ class ScheduleInput:
 
 @strawberry.input
 class UpdateErrandStatusInput:
-    id: int
+    id: uuid.UUID
     status: str
 
 
 @strawberry.input
 class UpdateErrandInput:
-    id: int
+    id: uuid.UUID
     title: Optional[str] = None
     description: Optional[str] = None
     templateId: Optional[str] = None
@@ -668,7 +669,7 @@ class UpdateErrandInput:
 
 @strawberry.input
 class PilotUpdateErrandStatusInput:
-    id: int
+    id: uuid.UUID
     status: str
     photoUrl: Optional[str] = None
     signatureUrl: Optional[str] = None
@@ -677,7 +678,7 @@ class PilotUpdateErrandStatusInput:
 
 @strawberry.input
 class ReportErrandIssueInput:
-    id: int
+    id: uuid.UUID
     reason: str
     notes: Optional[str] = None
     preferredResolution: Optional[str] = None
@@ -686,7 +687,7 @@ class ReportErrandIssueInput:
 
 @strawberry.input
 class SendErrandConfirmationInput:
-    id: int
+    id: uuid.UUID
 
 
 @strawberry.input
@@ -746,7 +747,7 @@ class Transparency:
 class UserProfile:
     """Current user profile information"""
 
-    id: int
+    id: uuid.UUID
     userUuid: str
     email: str
     firstName: str | None
@@ -1129,7 +1130,7 @@ class Mutation:
             raise ValueError("Missing user_id (not logged in)")
 
         try:
-            resolved_user_id = int(resolved_user_id)
+            resolved_user_id = str(resolved_user_id)
         except Exception:
             raise ValueError("Invalid user_id")
 
@@ -1139,7 +1140,7 @@ class Mutation:
         if enforce_payment:
             sub_active = await session.scalar(
                 select(ClientSubscription.id).where(
-                    ClientSubscription.user_id == int(resolved_user_id),
+                    ClientSubscription.user_id == str(resolved_user_id),
                     ClientSubscription.plan == "plus",
                     ClientSubscription.status.in_(["active", "trialing"]),
                 )
@@ -1156,7 +1157,7 @@ class Mutation:
                     select(StripeCheckoutSession)
                     .where(
                         StripeCheckoutSession.stripe_session_id == payment_session_id,
-                        StripeCheckoutSession.user_id == int(resolved_user_id),
+                        StripeCheckoutSession.user_id == str(resolved_user_id),
                     )
                     .with_for_update()
                 )
@@ -1243,7 +1244,7 @@ class Mutation:
             pickup_time_slot_end=pickup_time_end,
             pickup_time_slot_date=pickup_time_slot_date,
             status="submitted",
-            user_id=int(resolved_user_id),
+            user_id=str(resolved_user_id),
         )
         session.add(model)
         await session.flush()
@@ -1253,7 +1254,7 @@ class Mutation:
 
         # Mark the paid session as consumed for this errand (if used).
         if paid_session_row is not None:
-            paid_session_row.used_for_errand_id = int(model.id)
+            paid_session_row.used_for_errand_id = str(model.id)
             paid_session_row.used_at = datetime.now(timezone.utc)
 
         # Log event: errand created
@@ -1264,12 +1265,30 @@ class Mutation:
                 old_status=None,
                 new_status="submitted",
                 note=None,
-                user_id=int(resolved_user_id),
+                user_id=str(resolved_user_id),
             )
         )
 
         await session.commit()
         await session.refresh(model)
+
+        # Send confirmation email
+        user = await session.get(User, str(resolved_user_id), options=AUTH_SAFE_USER_LOAD_OPTIONS)
+        if user and user.email:
+            subject = f"Errand Created - #{model.reference_number} ({model.title})"
+            body = (
+                f"Your errand '{model.title}' has been successfully created.\n\n"
+                f"Reference: {model.reference_number}\n"
+                f"Status: {model.status}\n"
+                f"Pickup: {model.pickup_location or '-'}\n"
+                f"Dropoff: {model.dropoff_location or '-'}\n\n"
+                "We will notify you once a pilot accepts your errand.\n"
+                "If anything looks wrong, reply to this email."
+            )
+            try:
+                send_email(to_email=user.email, subject=subject, body_text=body)
+            except Exception as e:
+                print(f"Error sending creation email: {e}")
 
         return _to_gql(model)
 
@@ -1666,7 +1685,7 @@ class Mutation:
         return True
 
     @strawberry.mutation
-    async def delete_errand(self, info: Info, id: int) -> bool:
+    async def delete_errand(self, info: Info, id: uuid.UUID) -> bool:
         """Delete an errand and all its associated attachments."""
         print(f"[DELETE_ERRAND] Called with id={id}")
         session: AsyncSession = info.context["db"]
@@ -1710,7 +1729,7 @@ class Mutation:
         return True
 
     @strawberry.mutation
-    async def assign_errand(self, info: Info, errand_id: int) -> Errand:
+    async def assign_errand(self, info: Info, errand_id: uuid.UUID) -> Errand:
         """Admin assigns an errand to themselves (or an admin can assign to another admin)."""
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
@@ -1776,7 +1795,7 @@ class Mutation:
 
     @strawberry.mutation
     async def approve_errand(
-        self, info: Info, errand_id: int, notes: str = ""
+        self, info: Info, errand_id: uuid.UUID, notes: str = ""
     ) -> Errand:
         """Admin approves an assigned errand and changes status to 'approved'."""
         session: AsyncSession = info.context["db"]
@@ -1829,7 +1848,7 @@ class Mutation:
         return _to_gql(errand)
 
     @strawberry.mutation
-    async def mark_errand_done(self, info: Info, errand_id: int) -> Errand:
+    async def mark_errand_done(self, info: Info, errand_id: uuid.UUID) -> Errand:
         """Admin or customer marks errand as done (completed)."""
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
@@ -1899,7 +1918,7 @@ class Mutation:
         return _to_gql(errand)
 
     @strawberry.mutation
-    async def confirm_errand_received(self, info: Info, errand_id: int) -> Errand:
+    async def confirm_errand_received(self, info: Info, errand_id: uuid.UUID) -> Errand:
         """Customer confirms they have received the completed errand/report.
 
         This transitions the errand from 'completed' -> 'accepted'.
@@ -1916,7 +1935,7 @@ class Mutation:
         if not errand:
             raise ValueError("Errand not found")
 
-        if int(errand.user_id) != int(current_user_id):
+        if str(errand.user_id) != str(current_user_id):
             raise ValueError("Only the customer can confirm receipt for this errand")
 
         if _normalize_status(errand.status) != "completed":
@@ -1958,7 +1977,7 @@ class Mutation:
     async def cancel_errand(
         self,
         info: Info,
-        errand_id: int,
+        errand_id: uuid.UUID,
         agree_to_deduction: bool,
         reason: Optional[str] = None,
     ) -> Errand:
@@ -1986,7 +2005,7 @@ class Mutation:
         if not errand:
             raise ValueError("Errand not found")
 
-        if int(errand.user_id) != int(current_user_id):
+        if str(errand.user_id) != str(current_user_id):
             raise ValueError("Only the customer can cancel this errand")
 
         status_key = _normalize_status(errand.status)
@@ -2062,7 +2081,7 @@ class Mutation:
 
     @strawberry.mutation
     async def submit_errand_review(
-        self, info: Info, errand_id: int, rating: int, notes: str = None
+        self, info: Info, errand_id: uuid.UUID, rating: int, notes: str = None
     ) -> Errand:
         """Customer submits a review after errand completion."""
         session: AsyncSession = info.context["db"]
@@ -2128,16 +2147,16 @@ class Mutation:
             from models import PromoCode
             from app.services.promo_code_service import issue_promo_code
 
-            source = f"review_reward:{int(errand.id)}"
+            source = f"review_reward:{str(errand.id)}"
             existing = await session.scalar(
                 select(PromoCode)
-                .where(PromoCode.user_id == int(current_user_id))
+                .where(PromoCode.user_id == str(current_user_id))
                 .where(PromoCode.source == source)
             )
             if not existing:
                 await issue_promo_code(
                     session,
-                    user_id=int(current_user_id),
+                    user_id=str(current_user_id),
                     percent_off=10,
                     max_redemptions=1,
                     created_by_admin_id=None,
@@ -2512,7 +2531,7 @@ class Query:
         return [_to_gql(m) for m in rows]
 
     @strawberry.field
-    async def errand(self, info: Info, id: int) -> Optional[Errand]:
+    async def errand(self, info: Info, id: uuid.UUID) -> Optional[Errand]:
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
         if not current_user_id:
@@ -2559,7 +2578,7 @@ class Query:
         )
         is_admin = bool(user and user.email and user.email.strip() in admin_emails_list)
 
-        ids_norm = [int(i) for i in (ids or []) if i is not None]
+        ids_norm = [str(i) for i in (ids or []) if i is not None]
         if not ids_norm:
             return []
 
@@ -2618,7 +2637,7 @@ class Query:
 
         ids_norm: list[int] | None = None
         if errandIds is not None:
-            ids_norm = [int(i) for i in (errandIds or []) if i is not None]
+            ids_norm = [str(i) for i in (errandIds or []) if i is not None]
             if not ids_norm:
                 return []
             stmt = stmt.where(ErrandEvent.errand_id.in_(ids_norm))
@@ -2644,12 +2663,12 @@ class Query:
         for e, errand in rows:
             reference = getattr(
                 errand, "reference_number", None
-            ) or _make_reference_number(int(getattr(errand, "id", 0) or 0))
+            ) or _make_reference_number(str(getattr(errand, "id", "")) or "")
             created_at = getattr(e, "created_at", None) or datetime.now(timezone.utc)
             events.append(
                 ErrandTimelineEvent(
-                    id=int(e.id),
-                    errandId=int(e.errand_id),
+                    id=str(e.id),
+                    errandId=str(e.errand_id),
                     referenceNumber=str(reference),
                     errandTitle=str(getattr(errand, "title", "") or ""),
                     eventType=str(getattr(e, "event_type", "") or "status_update"),

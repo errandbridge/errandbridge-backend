@@ -1,11 +1,12 @@
-from sqlalchemy import Column, Integer, String, DateTime
+import uuid
+from sqlalchemy import Column, Uuid, Integer, String, DateTime
 from sqlalchemy.sql import func
 from database import Base
 
 
 class ErrandAttachment(Base):
     __tablename__ = "errand_attachments"
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
     errand_id = Column(Integer, nullable=False, index=True)
     original_filename = Column(String, nullable=False)
     stored_filename = Column(String, nullable=False, unique=True)

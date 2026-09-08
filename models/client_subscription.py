@@ -1,3 +1,5 @@
+import uuid
+from sqlalchemy import Uuid
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
 from sqlalchemy.sql import func
 
@@ -7,8 +9,8 @@ from database import Base
 class ClientSubscription(Base):
     __tablename__ = "client_subscriptions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(String, nullable=False, index=True)
 
     provider = Column(String, nullable=False, default="stripe")
     plan = Column(String, nullable=False, default="plus")

@@ -1,4 +1,5 @@
-from typing import Optional, Literal
+import uuid
+from typing import Optional, Literal, Union
 from database import AsyncSessionLocal
 from schema import schema, _make_reference_number
 from app.routes.tracking import router as tracking_router
@@ -618,6 +619,24 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    print(f"[UNHANDLED EXCEPTION] {request.method} {request.url.path}: {exc}", flush=True)
+    traceback.print_exc()
+    origin = request.headers.get("origin") or "http://localhost:3000"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred", "message": str(exc)},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
+
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -768,7 +787,7 @@ class ErrandCreateRequest(BaseModel):
 
 
 class ErrandResponse(BaseModel):
-    id: int
+    id: Union[uuid.UUID, int, str]
     reference_number: str = Field(..., alias="referenceNumber")
     title: str
     description: Optional[str] = None
@@ -789,8 +808,8 @@ class ErrandResponse(BaseModel):
     )
     note: Optional[str] = None
     status: str
-    user_id: int = Field(..., alias="userId")
-    pilot_id: Optional[int] = Field(default=None, alias="pilotId")
+    user_id: Union[uuid.UUID, int, str] = Field(..., alias="userId")
+    pilot_id: Optional[Union[uuid.UUID, int, str]] = Field(default=None, alias="pilotId")
     created_at: Optional[datetime] = Field(default=None, alias="createdAt")
     updated_at: Optional[datetime] = Field(default=None, alias="updatedAt")
     started_at: Optional[datetime] = Field(default=None, alias="startedAt")
@@ -1174,7 +1193,7 @@ def _is_admin_email(email: str | None) -> bool:
     return email.strip().lower() in admin_emails()
 
 
-def _current_user_id_from_request(request: Request) -> int:
+def _current_user_id_from_request(request: Request) -> Union[uuid.UUID, int, str]:
     token = _extract_bearer(request.headers.get("authorization"))
     if token == "devtoken123":
         return 1
@@ -1183,28 +1202,66 @@ def _current_user_id_from_request(request: Request) -> int:
     if not user_id:
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
+    return user_id
+
+
+_schema_migrated = False
+
+async def _ensure_errands_schema_compatible():
+    global _schema_migrated
+    if _schema_migrated:
+        return
     try:
-        return int(user_id)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid bearer token")
+        from database import engine
+        from sqlalchemy import text
+        async with engine.begin() as conn:
+            cols_to_add = [
+                ("pickup_contact_name", "VARCHAR"),
+                ("pickup_contact_phone", "VARCHAR"),
+                ("dropoff_contact_name", "VARCHAR"),
+                ("dropoff_contact_phone", "VARCHAR"),
+            ]
+            for col, col_type in cols_to_add:
+                try:
+                    await conn.execute(text(f"ALTER TABLE errands ADD COLUMN IF NOT EXISTS {col} {col_type};"))
+                except Exception:
+                    pass
+            for col in ["user_id", "pilot_id", "assigned_to"]:
+                try:
+                    await conn.execute(text(f"ALTER TABLE errands ALTER COLUMN {col} TYPE VARCHAR(64) USING {col}::VARCHAR;"))
+                except Exception:
+                    pass
+        _schema_migrated = True
+    except Exception as e:
+        print(f"[SCHEMA] Migration note: {e}", flush=True)
 
 
-def _errand_response(model: Errand) -> ErrandResponse:
+def _errand_response(model: Errand, pilot_name: Optional[str] = None) -> ErrandResponse:
+    errand_id = str(model.id) if isinstance(model.id, uuid.UUID) else model.id
+    user_id = str(model.user_id) if isinstance(model.user_id, uuid.UUID) else model.user_id
+    pilot_id = (str(model.pilot_id) if isinstance(model.pilot_id, uuid.UUID) else model.pilot_id) if model.pilot_id is not None else None
+
     return ErrandResponse(
-        id=int(model.id),
+        id=errand_id,
         reference_number=model.reference_number,
         title=model.title,
         description=model.description,
         pickup_location=model.pickup_location,
         dropoff_location=model.dropoff_location,
+        pickup_contact_name=getattr(model, "pickup_contact_name", None),
+        pickup_contact_phone=getattr(model, "pickup_contact_phone", None),
+        dropoff_contact_name=getattr(model, "dropoff_contact_name", None),
+        dropoff_contact_phone=getattr(model, "dropoff_contact_phone", None),
+        assigned_runner_name=pilot_name,
         note=model.note,
         status=model.status or "pending",
-        user_id=int(model.user_id),
-        pilot_id=model.pilot_id,
+        user_id=user_id,
+        pilot_id=pilot_id,
         created_at=model.created_at,
         updated_at=model.updated_at,
         started_at=model.started_at,
         completed_at=model.completed_at,
+        pickup_time_slot_date=getattr(model, "pickup_time_slot_date", None),
     )
 
 
@@ -1240,7 +1297,7 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
         if enforce_payment:
             sub_active = await session.scalar(
                 select(ClientSubscription.id).where(
-                    ClientSubscription.user_id == int(user_id),
+                    cast(ClientSubscription.user_id, String) == str(user_id),
                     ClientSubscription.plan == "plus",
                     ClientSubscription.status.in_(["active", "trialing"]),
                 )
@@ -1255,7 +1312,7 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
                     select(StripeCheckoutSession)
                     .where(
                         StripeCheckoutSession.stripe_session_id == payment_session_id,
-                        StripeCheckoutSession.user_id == int(user_id),
+                        cast(StripeCheckoutSession.user_id, String) == str(user_id),
                     )
                     .with_for_update()
                 )
@@ -1299,7 +1356,7 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
             distance_km=payload.distance_km if payload.distance_km is not None else 5.0,
             note=note,
             status="submitted",
-            user_id=int(user_id),
+            user_id=str(user_id),
         )
         session.add(model)
         await session.flush()
@@ -1307,7 +1364,7 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
         model.reference_number = _make_reference_number(model.id)
 
         if payment_session_row is not None:
-            payment_session_row.used_for_errand_id = int(model.id)
+            payment_session_row.used_for_errand_id = str(model.id)
             payment_session_row.used_at = datetime.now(timezone.utc)
 
         session.add(
@@ -1317,7 +1374,7 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
                 old_status=None,
                 new_status="submitted",
                 note=None,
-                user_id=int(user_id),
+                user_id=str(user_id),
             )
         )
 
@@ -1368,41 +1425,69 @@ async def list_errands(
     ),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    size: Optional[int] = Query(default=None, ge=1, le=100),
 ):
     """List errands owned by the authenticated user.
 
     Auth: requires a Bearer token. Admin-wide listing remains under `/admin/errands`.
     """
     user_id = _current_user_id_from_request(request)
+    if size is not None:
+        limit = size
 
-    from sqlalchemy.orm import aliased
+    await _ensure_errands_schema_compatible()
 
-    pilot_alias = aliased(User)
-    stmt = (
-        select(Errand, pilot_alias)
-        .outerjoin(pilot_alias, Errand.pilot_id == pilot_alias.id)
-        .where(Errand.user_id == user_id)
-    )
-    if status_filter:
-        stmt = stmt.where(Errand.status == status_filter.strip())
-    stmt = stmt.order_by(Errand.created_at.desc()).offset(offset).limit(limit)
+    try:
+        from sqlalchemy.orm import aliased
+        from sqlalchemy import cast, String
 
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(stmt)
-        rows = result.all()
-
-    out = []
-    for errand_row, pilot_user in rows:
-        pilot_name = None
-        if pilot_user:
-            fn = (pilot_user.first_name or "").strip()
-            ln = (pilot_user.last_name or "").strip()
-            pilot_name = (
-                f"{fn} {ln}".strip() or pilot_user.email or f"Pilot #{pilot_user.id}"
+        pilot_alias = aliased(User)
+        stmt = (
+            select(Errand, pilot_alias)
+            .outerjoin(
+                pilot_alias,
+                cast(Errand.pilot_id, String) == cast(pilot_alias.id, String),
             )
-        out.append(_errand_response(errand_row, pilot_name=pilot_name))
+            .where(cast(Errand.user_id, String) == str(user_id))
+        )
+        if status_filter:
+            stmt = stmt.where(Errand.status == status_filter.strip())
+        stmt = stmt.order_by(Errand.created_at.desc()).offset(offset).limit(limit)
 
-    return out
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(stmt)
+            rows = result.all()
+
+        out = []
+        for errand_row, pilot_user in rows:
+            pilot_name = None
+            if pilot_user:
+                fn = (pilot_user.first_name or "").strip()
+                ln = (pilot_user.last_name or "").strip()
+                pilot_name = (
+                    f"{fn} {ln}".strip() or pilot_user.email or f"Pilot #{pilot_user.id}"
+                )
+            out.append(_errand_response(errand_row, pilot_name=pilot_name))
+
+        return out
+    except Exception as e:
+        print(f"[ERRANDS] list_errands error: {e}", flush=True)
+        try:
+            from sqlalchemy import cast, String
+            async with AsyncSessionLocal() as session:
+                stmt_simple = (
+                    select(Errand)
+                    .where(cast(Errand.user_id, String) == str(user_id))
+                    .order_by(Errand.created_at.desc())
+                    .offset(offset)
+                    .limit(limit)
+                )
+                res = await session.execute(stmt_simple)
+                errands = res.scalars().all()
+                return [_errand_response(m) for m in errands]
+        except Exception as inner_e:
+            print(f"[ERRANDS] list_errands fallback error: {inner_e}", flush=True)
+            return []
 
 
 class ErrandStatusUpdateIn(BaseModel):
@@ -1412,19 +1497,19 @@ class ErrandStatusUpdateIn(BaseModel):
 
 @app.put("/errands/{errand_id}/status", response_model=ErrandResponse)
 async def update_errand_status(
-    errand_id: int, payload: ErrandStatusUpdateIn, request: Request
+    errand_id: Union[uuid.UUID, int, str], payload: ErrandStatusUpdateIn, request: Request
 ):
     user_id = _current_user_id_from_request(request)
 
     async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Errand).where(Errand.id == errand_id))
+        result = await session.execute(select(Errand).where(cast(Errand.id, String) == str(errand_id)))
         model = result.scalar_one_or_none()
 
         if not model:
             raise HTTPException(status_code=404, detail="Errand not found")
 
-        if int(model.user_id) != int(user_id) and (
-            model.pilot_id is None or int(model.pilot_id) != int(user_id)
+        if str(model.user_id) != str(user_id) and (
+            model.pilot_id is None or str(model.pilot_id) != str(user_id)
         ):
             raise HTTPException(status_code=403, detail="Not allowed to update status")
 
@@ -1438,13 +1523,13 @@ async def update_errand_status(
 
 
 @app.get("/errands/{errand_id}", response_model=ErrandResponse)
-async def get_errand(errand_id: int, request: Request):
+async def get_errand(errand_id: Union[uuid.UUID, int, str], request: Request):
     """Get one errand owned by the authenticated user."""
     user_id = _current_user_id_from_request(request)
 
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(Errand).where(Errand.id == errand_id, Errand.user_id == user_id)
+            select(Errand).where(cast(Errand.id, String) == str(errand_id), cast(Errand.user_id, String) == str(user_id))
         )
         model = result.scalar_one_or_none()
 
@@ -1456,7 +1541,7 @@ async def get_errand(errand_id: int, request: Request):
 
 @app.post("/errands/{errand_id}/attachments")
 async def upload_errand_attachment(
-    errand_id: int, request: Request, file: UploadFile = File(...)
+    errand_id: Union[uuid.UUID, int, str], request: Request, file: UploadFile = File(...)
 ):
     print("[DEBUG] Incoming headers:", dict(request.headers))
     """Upload an image/document attachment for an errand.
@@ -1500,8 +1585,8 @@ async def upload_errand_attachment(
         model = await session.get(Errand, errand_id)
         if not model:
             raise HTTPException(status_code=404, detail="Errand not found")
-        if int(model.user_id) != int(user_id) and (
-            model.pilot_id is None or int(model.pilot_id) != int(user_id)
+        if str(model.user_id) != str(user_id) and (
+            model.pilot_id is None or str(model.pilot_id) != str(user_id)
         ):
             raise HTTPException(status_code=403, detail="Not allowed")
 
@@ -1527,7 +1612,7 @@ async def upload_errand_attachment(
 
 
 @app.get("/errands/{errand_id}/attachments")
-async def list_errand_attachments(errand_id: int, request: Request):
+async def list_errand_attachments(errand_id: Union[uuid.UUID, int, str], request: Request):
     """List attachments for an errand.
 
     Auth: requires Bearer token and ownership (errand owner).
@@ -1542,7 +1627,7 @@ async def list_errand_attachments(errand_id: int, request: Request):
         model = await session.get(Errand, errand_id)
         if not model:
             raise HTTPException(status_code=404, detail="Errand not found")
-        if int(model.user_id) != int(user_id):
+        if str(model.user_id) != str(user_id):
             raise HTTPException(status_code=403, detail="Not allowed")
 
         # Keep it simple: fetch all attachments for this errand.
@@ -1595,7 +1680,7 @@ async def list_all_attachments(request: Request):
         res = await session.execute(
             select(ErrandAttachment)
             .join(Errand, ErrandAttachment.errand_id == Errand.id)
-            .where(Errand.user_id == int(user_id))
+            .where(cast(Errand.user_id, String) == str(user_id))
             .order_by(ErrandAttachment.id.desc())
         )
         items = res.scalars().all()
@@ -1863,7 +1948,7 @@ async def create_attachment_share_link(
             expires_at=expires_at,
             uses=0,
             max_uses=int(payload.max_uses),
-            created_by_user_id=int(user_id),
+            created_by_user_id=str(user_id),
         )
 
         session.add(model)
@@ -2132,8 +2217,8 @@ async def download_attachment(attachment_id: int, request: Request):
         model = await session.get(Errand, attachment.errand_id)
         if not model:
             raise HTTPException(status_code=404, detail="Errand not found")
-        if int(model.user_id) != int(user_id) and (
-            model.pilot_id is None or int(model.pilot_id) != int(user_id)
+        if str(model.user_id) != str(user_id) and (
+            model.pilot_id is None or str(model.pilot_id) != str(user_id)
         ):
             print(
                 f"[DEBUG] 403 in download_attachment: model.user_id={model.user_id}, model.pilot_id={model.pilot_id}, request user_id={user_id}",

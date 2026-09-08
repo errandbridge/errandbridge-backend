@@ -1,6 +1,7 @@
+import uuid
 """Pilot Location model for GPS tracking"""
 
-from sqlalchemy import Column, Integer, Float, DateTime, ForeignKey, Index, String
+from sqlalchemy import Column, Uuid, Integer, Float, DateTime, ForeignKey, Index, String
 from sqlalchemy.sql import func
 from database import Base
 
@@ -8,15 +9,12 @@ from database import Base
 class PilotLocation(Base):
     __tablename__ = "pilot_locations"
 
-    id = Column(Integer, primary_key=True, index=True)
-    errand_id = Column(
-        Integer,
-        ForeignKey("errands.id", ondelete="CASCADE"),
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
+    errand_id = Column(Uuid, ForeignKey("errands.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    pilot_id = Column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    pilot_id = Column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     latitude = Column(Float, nullable=False)  # Decimal precision handled by DB
     longitude = Column(Float, nullable=False)

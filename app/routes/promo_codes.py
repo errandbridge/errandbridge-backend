@@ -50,7 +50,7 @@ async def _current_user_id_from_request(
 
 
 class PromoCodeOut(BaseModel):
-    id: int
+    id: str
     code: str
     display_code: str
     percent_off: int

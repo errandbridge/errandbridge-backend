@@ -115,9 +115,9 @@ async def _is_admin(db: AsyncSession, user: User) -> bool:
 
 
 async def _require_participant(
-    db: AsyncSession, *, errand_id: int, user: User
+    db: AsyncSession, *, errand_id: str, user: User
 ) -> Errand:
-    errand = await db.get(Errand, int(errand_id))
+    errand = await db.get(Errand, errand_id)
     if not errand:
         raise HTTPException(status_code=404, detail="Errand not found")
 
@@ -138,9 +138,9 @@ class ErrandMessageIn(BaseModel):
 
 
 class ErrandMessageOut(BaseModel):
-    id: int
+    id: str
     message: str
-    sender_id: int
+    sender_id: str
     sender_type: str
     sender_name: str
     mine: bool
@@ -149,7 +149,7 @@ class ErrandMessageOut(BaseModel):
 
 @router.get("/{errand_id}/messages", response_model=dict)
 async def list_errand_messages(
-    errand_id: int,
+    errand_id: str,
     limit: int = 50,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -212,7 +212,7 @@ async def list_errand_messages(
 
 @router.post("/{errand_id}/messages", response_model=ErrandMessageOut)
 async def send_errand_message(
-    errand_id: int,
+    errand_id: str,
     payload: ErrandMessageIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),

@@ -271,7 +271,7 @@ def _tracking_request_fingerprint(request: Request, location) -> dict:
 class LocationUpdate(BaseModel):
     """GPS location update from pilot"""
 
-    errand_id: int
+    errand_id: str
     latitude: float
     longitude: float
     accuracy: Optional[float] = None
@@ -285,9 +285,9 @@ class LocationUpdate(BaseModel):
 class LocationResponse(BaseModel):
     """Single location data point"""
 
-    id: int
-    errand_id: int
-    pilot_id: int
+    id: str
+    errand_id: str
+    pilot_id: str
     latitude: float
     longitude: float
     accuracy: Optional[float]
@@ -328,8 +328,8 @@ def _build_location_response(
 class RouteHistoryResponse(BaseModel):
     """Complete route history for an errand"""
 
-    errand_id: int
-    pilot_id: int
+    errand_id: str
+    pilot_id: str
     total_points: int
     start_location: Optional[LocationResponse]
     end_location: Optional[LocationResponse]
@@ -558,7 +558,7 @@ async def update_location(
 
 @router.get("/status/{errand_id}", response_model=dict)
 async def get_tracking_status(
-    errand_id: int,
+    errand_id: str,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -577,7 +577,7 @@ async def get_tracking_status(
 
 @router.get("/current/{errand_id}", response_model=LocationResponse)
 async def get_current_location(
-    errand_id: int,
+    errand_id: str,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -619,7 +619,7 @@ async def get_current_location(
 
 @router.get("/history/{errand_id}", response_model=RouteHistoryResponse)
 async def get_route_history(
-    errand_id: int,
+    errand_id: str,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -682,7 +682,7 @@ async def get_route_history(
 
 @router.get("/locations-last-hour/{errand_id}", response_model=list)
 async def get_locations_last_hour(
-    errand_id: int,
+    errand_id: str,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -728,19 +728,19 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: dict[int, list[WebSocket]] = {}
 
-    async def connect(self, errand_id: int, websocket: WebSocket):
+    async def connect(self, errand_id: str, websocket: WebSocket):
         await websocket.accept()
         if errand_id not in self.active_connections:
             self.active_connections[errand_id] = []
         self.active_connections[errand_id].append(websocket)
 
-    def disconnect(self, errand_id: int, websocket: WebSocket):
+    def disconnect(self, errand_id: str, websocket: WebSocket):
         if errand_id in self.active_connections:
             self.active_connections[errand_id].remove(websocket)
             if not self.active_connections[errand_id]:
                 del self.active_connections[errand_id]
 
-    async def broadcast(self, errand_id: int, message: dict):
+    async def broadcast(self, errand_id: str, message: dict):
         """Send location update to all connected clients watching this errand"""
         if errand_id in self.active_connections:
             stale_connections: list[WebSocket] = []
@@ -759,7 +759,7 @@ manager = ConnectionManager()
 
 
 @router.websocket("/ws/{errand_id}")
-async def websocket_endpoint(websocket: WebSocket, errand_id: int):
+async def websocket_endpoint(websocket: WebSocket, errand_id: str):
     """
     WebSocket for real-time pilot location tracking
     Connect to receive live updates as pilot moves

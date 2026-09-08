@@ -570,7 +570,7 @@ async def list_pilot_jobs(
 
 @router.post("/accept-job", response_model=dict)
 async def accept_job(
-    errand_id: int = Body(..., embed=True),
+    errand_id: str = Body(..., embed=True),
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -596,7 +596,7 @@ async def accept_job(
 
     # Prevent pilots from accepting errands that are assigned to another pilot.
     # Unassigned errands are claimable (see /available-jobs behavior).
-    if errand.pilot_id is not None and int(errand.pilot_id) != int(pilot.id):
+    if errand.pilot_id is not None and str(errand.pilot_id) != str(pilot.id):
         try:
             await notify_admin_status(
                 db,
@@ -613,7 +613,7 @@ async def accept_job(
             detail="Errand is assigned to another pilot",
         )
 
-    if errand.pilot_id is not None and int(errand.pilot_id) == int(pilot.id):
+    if errand.pilot_id is not None and int(errand.pilot_id) == str(pilot.id):
         normalized_status = _normalize_status(errand.status)
         if normalized_status in ["accepted", "picked_up", "in_progress", "delivered"]:
             customer = await db.get(User, errand.user_id)
@@ -833,7 +833,7 @@ async def list_availability_history(
 
 @router.post("/decline-job", response_model=dict)
 async def decline_job(
-    errand_id: int = Body(..., embed=True),
+    errand_id: str = Body(..., embed=True),
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -848,7 +848,7 @@ async def decline_job(
             status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
         )
 
-    if not errand.pilot_id or int(errand.pilot_id) != int(pilot.id):
+    if not errand.pilot_id or str(errand.pilot_id) != str(pilot.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
         )
@@ -923,7 +923,7 @@ def _availability_secret() -> str:
     )
 
 
-def _availability_token(errand_id: int, pilot_id: int, expires_at: int) -> str:
+def _availability_token(errand_id: str, pilot_id: str, expires_at: int) -> str:
     msg = f"{errand_id}:{pilot_id}:{expires_at}".encode("utf-8")
     return hmac.new(
         _availability_secret().encode("utf-8"), msg, hashlib.sha256
@@ -932,7 +932,7 @@ def _availability_token(errand_id: int, pilot_id: int, expires_at: int) -> str:
 
 @router.get("/availability-response", response_model=dict)
 async def availability_response(
-    errand_id: int,
+    errand_id: str,
     response: str,
     pilot_id: Optional[int] = None,
     expires: Optional[int] = None,
@@ -972,7 +972,7 @@ async def availability_response(
             status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
         )
 
-    if not errand.pilot_id or int(errand.pilot_id) != int(pilot.id):
+    if not errand.pilot_id or str(errand.pilot_id) != str(pilot.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
         )
@@ -1032,7 +1032,7 @@ async def availability_response(
 
 @router.post("/errands/{errand_id}/attachments", response_model=dict)
 async def upload_pilot_attachment(
-    errand_id: int,
+    errand_id: str,
     authorization: Optional[str] = Header(default=None),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
@@ -1050,7 +1050,7 @@ async def upload_pilot_attachment(
             status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
         )
 
-    if not errand.pilot_id or int(errand.pilot_id) != int(pilot.id):
+    if not errand.pilot_id or str(errand.pilot_id) != str(pilot.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
         )
@@ -1193,7 +1193,7 @@ async def list_pilot_documents(
 
 @router.post("/start-delivery", response_model=dict)
 async def start_delivery(
-    errand_id: int,
+    errand_id: str,
     note: Optional[str] = None,
     pilot_id: Optional[int] = None,
     authorization: Optional[str] = Header(default=None),
@@ -1285,7 +1285,7 @@ async def start_delivery(
         async def _send_start_notifications() -> None:
             try:
                 async with AsyncSessionLocal() as session:
-                    refreshed = await session.get(Errand, int(errand_id))
+                    refreshed = await session.get(Errand, errand_id)
                     if not refreshed:
                         return
                     await notify_customer_status(
@@ -1335,7 +1335,7 @@ async def start_delivery(
 
 @router.post("/delay-reason", response_model=dict)
 async def submit_delay_reason(
-    errand_id: int = Body(..., embed=True),
+    errand_id: str = Body(..., embed=True),
     reason: str = Body(..., embed=True),
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -1350,7 +1350,7 @@ async def submit_delay_reason(
             status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
         )
 
-    if not errand.pilot_id or int(errand.pilot_id) != int(pilot.id):
+    if not errand.pilot_id or str(errand.pilot_id) != str(pilot.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
         )
@@ -1444,7 +1444,7 @@ async def submit_delay_reason(
 
 @router.post("/complete-delivery", response_model=dict)
 async def complete_delivery(
-    errand_id: int,
+    errand_id: str,
     signature_url: Optional[str] = None,
     photo_url: Optional[str] = None,
     notes: Optional[str] = None,
@@ -1587,7 +1587,7 @@ async def complete_delivery(
 
 @router.post("/pause-tracking", response_model=dict)
 async def pause_tracking(
-    errand_id: int,
+    errand_id: str,
     pilot_id: Optional[int] = None,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -1659,7 +1659,7 @@ async def pause_tracking(
 
 @router.post("/resume-tracking", response_model=dict)
 async def resume_tracking(
-    errand_id: int,
+    errand_id: str,
     pilot_id: Optional[int] = None,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -1738,7 +1738,7 @@ async def get_active_delivery(
         pilot = await _get_current_user(authorization, db)
 
         requested_pilot_id = pilot_id or pilot.id
-        if int(requested_pilot_id) != int(pilot.id):
+        if int(requested_pilot_id) != str(pilot.id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You can only view your own active delivery",

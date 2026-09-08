@@ -25,9 +25,9 @@ from fastapi import (
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from sqlalchemy import select, update
+from sqlalchemy import cast, String, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func
+from sqlalchemy import cast, String, func
 
 import httpx
 from email_validator import EmailNotValidError, validate_email
@@ -2133,7 +2133,7 @@ async def me(
         completed_statuses = {"completed", "accepted", "delivered"}
         completed_q = await db.execute(
             select(func.count(Errand.id)).where(
-                Errand.user_id == user_id,
+                cast(Errand.user_id, String) == str(user_id),
                 Errand.status.in_(completed_statuses),
             )
         )
@@ -2142,8 +2142,8 @@ async def me(
         docs_q = await db.execute(
             select(func.count(ErrandAttachment.id))
             .select_from(ErrandAttachment)
-            .join(Errand, Errand.id == ErrandAttachment.errand_id)
-            .where(Errand.user_id == user_id)
+            .join(Errand, cast(Errand.id, String) == cast(ErrandAttachment.errand_id, String))
+            .where(cast(Errand.user_id, String) == str(user_id))
         )
         docs_count = int(docs_q.scalar() or 0)
     except Exception as e:

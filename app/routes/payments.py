@@ -1275,7 +1275,7 @@ async def verify_checkout_session(payload: VerifySessionRequest):
 
             elif errand_id:
                 async with AsyncSessionLocal() as db:
-                    errand = await db.get(Errand, int(errand_id))
+                    errand = await db.get(Errand, errand_id)
                     if errand:
                         if hasattr(errand, "payment_amount_total_minor"):
                             errand.payment_amount_total_minor = session.amount_total

@@ -23,7 +23,7 @@ router = APIRouter(prefix="/incidents", tags=["incidents"])
 
 
 class IncidentReportIn(BaseModel):
-    errand_id: int
+    errand_id: str
     incident_type: str = Field(..., min_length=2)
     description: str = Field(..., min_length=3)
 
@@ -81,7 +81,7 @@ async def report_incident(
     if not errand:
         raise HTTPException(status_code=404, detail="Errand not found")
 
-    if not errand.pilot_id or int(errand.pilot_id) != int(pilot.id):
+    if not errand.pilot_id or str(errand.pilot_id) != str(pilot.id):
         raise HTTPException(status_code=403, detail="Not assigned to this errand")
 
     errand.issue_reason = payload.incident_type
@@ -127,7 +127,7 @@ async def report_incident(
 
 @router.post("/{incident_id}/messages", response_model=dict)
 async def add_incident_message(
-    incident_id: int,
+    incident_id: str,
     payload: IncidentMessageIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -140,7 +140,7 @@ async def add_incident_message(
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
-    if not incident.pilot_id or int(incident.pilot_id) != int(pilot.id):
+    if not incident.pilot_id or int(incident.pilot_id) != str(pilot.id):
         raise HTTPException(status_code=403, detail="Not assigned to this incident")
 
     message = IncidentMessage(
@@ -268,7 +268,7 @@ async def list_incident_alerts(
 
 @router.post("/{incident_id}/admin-message", response_model=dict)
 async def add_admin_incident_message(
-    incident_id: int,
+    incident_id: str,
     payload: AdminIncidentMessageIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -313,7 +313,7 @@ async def add_admin_incident_message(
 
 @router.post("/{incident_id}/resolve", response_model=dict)
 async def resolve_incident(
-    incident_id: int,
+    incident_id: str,
     payload: AdminIncidentResolveIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -395,7 +395,7 @@ async def resolve_incident(
 
 @router.get("/errand/{errand_id}", response_model=dict)
 async def list_incidents_for_errand(
-    errand_id: int,
+    errand_id: str,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -452,7 +452,7 @@ async def list_incidents_for_errand(
 
 @router.get("/{incident_id}/messages", response_model=dict)
 async def list_incident_messages(
-    incident_id: int,
+    incident_id: str,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):

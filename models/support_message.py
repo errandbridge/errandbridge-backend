@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+import uuid
+from sqlalchemy import Column, Uuid, Integer, String, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from database import Base
 
@@ -6,9 +7,8 @@ from database import Base
 class SupportMessage(Base):
     __tablename__ = "support_messages"
 
-    id = Column(Integer, primary_key=True, index=True)
-    conversation_id = Column(
-        Integer, ForeignKey("support_conversations.id"), nullable=False, index=True
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
+    conversation_id = Column(Uuid, ForeignKey("support_conversations.id"), nullable=False, index=True
     )
     sender_type = Column(String, nullable=False)  # customer | ai | admin
     message = Column(String, nullable=False)

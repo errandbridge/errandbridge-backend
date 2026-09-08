@@ -37,7 +37,7 @@ def _require_user_id_from_token(token: Optional[str]) -> int:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-async def _is_admin_user(db: AsyncSession, user_id: int) -> bool:
+async def _is_admin_user(db: AsyncSession, user_id: uuid.UUID) -> bool:
     try:
         await require_admin_user(db, user_id)
         return True
@@ -357,7 +357,7 @@ async def list_support_handoff_alerts(
 
 @router.get("/conversations/{conversation_id}/messages", response_model=dict)
 async def list_support_messages(
-    conversation_id: int,
+    conversation_id: str,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -392,7 +392,7 @@ async def list_support_messages(
 
 @router.post("/conversations/{conversation_id}/admin-message", response_model=dict)
 async def add_support_message(
-    conversation_id: int,
+    conversation_id: str,
     payload: AdminSupportMessageIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),

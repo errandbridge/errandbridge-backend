@@ -1,4 +1,5 @@
 from __future__ import annotations
+import uuid
 
 import asyncio
 from datetime import datetime, timezone, timedelta
@@ -112,7 +113,7 @@ def _can_delete_other_admin_accounts(actor: User) -> bool:
 
 
 class AdminUserOut(BaseModel):
-    id: int
+    id: uuid.UUID
     email: str
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -122,7 +123,7 @@ class AdminUserOut(BaseModel):
 
 
 class AdminErrandOut(BaseModel):
-    id: int
+    id: uuid.UUID
     reference_number: Optional[str] = None
     title: str
     description: Optional[str] = None
@@ -130,15 +131,15 @@ class AdminErrandOut(BaseModel):
     pickup_location: Optional[str] = None
     dropoff_location: Optional[str] = None
     status: str
-    pilot_id: Optional[int] = None
+    pilot_id: Optional[uuid.UUID] = None
     # Admin-only disclosure: admins can see full customer info + timestamps.
-    user_id: Optional[int] = None
+    user_id: Optional[uuid.UUID] = None
     customer_name: Optional[str] = None
     customer_email: Optional[str] = None
     customer_phone: Optional[str] = None
     created_at: Optional[datetime] = None
     assigned_at: Optional[datetime] = None
-    confirmation_sent_at: Optional[int] = None
+    confirmation_sent_at: Optional[uuid.UUID] = None
 
     # Helpful operational fields (best-effort; may be null in older rows)
     amount: Optional[float] = None
@@ -147,17 +148,17 @@ class AdminErrandOut(BaseModel):
 
 
 class AdminErrandChatOut(BaseModel):
-    errand_id: int
+    errand_id: uuid.UUID
     reference_number: Optional[str] = None
     status: str
     created_at: Optional[datetime] = None
 
-    user_id: Optional[int] = None
+    user_id: Optional[uuid.UUID] = None
     customer_name: Optional[str] = None
     customer_email: Optional[str] = None
     customer_phone: Optional[str] = None
 
-    pilot_id: Optional[int] = None
+    pilot_id: Optional[uuid.UUID] = None
     pilot_name: Optional[str] = None
     pilot_email: Optional[str] = None
     pilot_phone: Optional[str] = None
@@ -165,7 +166,7 @@ class AdminErrandChatOut(BaseModel):
     message_count: int
     last_message_at: Optional[datetime] = None
     last_message: Optional[str] = None
-    last_sender_id: Optional[int] = None
+    last_sender_id: Optional[uuid.UUID] = None
 
 
 class AdminResetVisitsPayload(BaseModel):
@@ -178,10 +179,10 @@ class AdminPilotDocumentReviewIn(BaseModel):
 
 
 class AdminIssueOut(BaseModel):
-    errand_id: int
+    errand_id: uuid.UUID
     reference_number: Optional[str] = None
     errand_status: str
-    user_id: int
+    user_id: uuid.UUID
     created_at: Optional[datetime] = None
 
     issue_reason: Optional[str] = None
@@ -202,7 +203,7 @@ class AdminIssueOut(BaseModel):
 
 class AdminDeleteUserOut(BaseModel):
     deleted: bool
-    user_id: int
+    user_id: uuid.UUID
     email: Optional[str] = None
 
 
@@ -223,7 +224,7 @@ class AdminBulkDeleteUsersOut(BaseModel):
 
 async def _cascade_delete_user_data(
     db: AsyncSession,
-    user_id: int,
+    user_id: uuid.UUID,
 ) -> dict[str, list[str]]:
     """Best-effort removal of rows that can block deleting a user.
 
@@ -381,9 +382,9 @@ class AdminIssueResolveIn(BaseModel):
 
 
 class AdminAttachmentOut(BaseModel):
-    id: int
-    errand_id: int
-    user_id: int
+    id: uuid.UUID
+    errand_id: uuid.UUID
+    user_id: uuid.UUID
     reference_number: Optional[str] = None
     errand_title: Optional[str] = None
     owner_name: Optional[str] = None
@@ -396,7 +397,7 @@ class AdminAttachmentOut(BaseModel):
     review_status: str
     review_note: Optional[str] = None
     reviewed_at: Optional[datetime] = None
-    reviewed_by_user_id: Optional[int] = None
+    reviewed_by_user_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
 
 
@@ -411,7 +412,7 @@ class AdminErrandStatusUpdateIn(BaseModel):
 
 
 class AdminAssignPilotIn(BaseModel):
-    pilot_id: int
+    pilot_id: uuid.UUID
     note: Optional[str] = None
 
 
@@ -430,30 +431,30 @@ class AdminPilotDispatchPolicyOut(BaseModel):
     open_pool_radius_miles: int
     allowed_open_pool_radius_miles: list[int]
     updated_at: Optional[datetime] = None
-    updated_by_user_id: Optional[int] = None
+    updated_by_user_id: Optional[uuid.UUID] = None
 
 
 class AdminPromoCodeGenerateIn(BaseModel):
-    user_id: Optional[int] = None
+    user_id: Optional[uuid.UUID] = None
     percent_off: int = 10
     max_redemptions: int = 1
     source: Optional[str] = None
 
 
 class AdminPromoCodeOut(BaseModel):
-    id: int
+    id: uuid.UUID
     code: str
     display_code: str
     percent_off: int
-    user_id: Optional[int] = None
+    user_id: Optional[uuid.UUID] = None
     user_email: Optional[str] = None
     user_name: Optional[str] = None
-    created_by_admin_id: Optional[int] = None
+    created_by_admin_id: Optional[uuid.UUID] = None
     source: Optional[str] = None
     max_redemptions: int
     redeemed_count: int
     redeemed_at: Optional[datetime] = None
-    redeemed_errand_id: Optional[int] = None
+    redeemed_errand_id: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
 
 
@@ -483,7 +484,7 @@ def _promo_to_admin_out(p: PromoCode, user: Optional[User] = None) -> AdminPromo
 @router.get("/promo-codes", response_model=list[AdminPromoCodeOut])
 async def list_promo_codes(
     request: Request,
-    user_id: Optional[int] = None,
+    user_id: Optional[uuid.UUID] = None,
     redeemed: Optional[bool] = None,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -586,7 +587,7 @@ async def list_users(
 
 @router.delete("/users/{user_id}", response_model=AdminDeleteUserOut)
 async def delete_user(
-    user_id: int,
+    user_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
@@ -661,7 +662,7 @@ async def delete_user(
 
 
 @router.options("/users/{user_id}")
-async def options_delete_user(user_id: int):
+async def options_delete_user(user_id: uuid.UUID):
     # Let the global CORS middleware (if enabled) answer preflight cleanly.
     # Explicit route avoids 405 in setups where middleware isn't catching OPTIONS.
     return Response(status_code=200)
@@ -805,7 +806,7 @@ async def options_bulk_delete_users():
 @router.get("/errands", response_model=list[AdminErrandOut])
 async def list_errands(
     request: Request,
-    user_id: Optional[int] = None,
+    user_id: Optional[uuid.UUID] = None,
     status: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
@@ -999,7 +1000,7 @@ async def list_errand_chats(
 
 @router.get("/errands/{errand_id}", response_model=AdminErrandOut)
 async def get_errand_detail(
-    errand_id: int,
+    errand_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
@@ -1048,8 +1049,8 @@ async def get_errand_detail(
 @router.get("/attachments", response_model=list[AdminAttachmentOut])
 async def list_attachments(
     authorization: Optional[str] = Header(default=None),
-    errand_id: Optional[int] = None,
-    user_id: Optional[int] = None,
+    errand_id: Optional[uuid.UUID] = None,
+    user_id: Optional[uuid.UUID] = None,
     db: AsyncSession = Depends(get_db),
 ):
     admin = await _require_admin(db, authorization)
@@ -1227,7 +1228,7 @@ async def review_attachment(
 
 @router.post("/errands/{errand_id}/status")
 async def update_errand_status(
-    errand_id: int,
+    errand_id: uuid.UUID,
     payload: AdminErrandStatusUpdateIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -1308,7 +1309,7 @@ async def update_errand_status(
 
 @router.delete("/errands/{errand_id}")
 async def delete_errand(
-    errand_id: int,
+    errand_id: uuid.UUID,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1406,7 +1407,7 @@ async def delete_errand(
 
 
 @router.options("/errands/{errand_id}")
-async def options_delete_errand(errand_id: int):
+async def options_delete_errand(errand_id: uuid.UUID):
     # Let the global CORS middleware (if enabled) answer preflight cleanly.
     # Explicit route avoids 405 in setups where middleware isn't catching OPTIONS.
     return Response(status_code=200)
@@ -1414,7 +1415,7 @@ async def options_delete_errand(errand_id: int):
 
 @router.post("/errands/{errand_id}/assign-pilot")
 async def assign_pilot_to_errand(
-    errand_id: int,
+    errand_id: uuid.UUID,
     payload: AdminAssignPilotIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -1518,7 +1519,7 @@ async def assign_pilot_to_errand(
 
 @router.post("/pilots/{pilot_id}/dispatch-status", response_model=dict)
 async def update_pilot_dispatch_status(
-    pilot_id: int,
+    pilot_id: uuid.UUID,
     payload: AdminPilotDispatchUpdateIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -2041,7 +2042,7 @@ async def list_issues(
 
 @router.post("/issues/{errand_id}/resolve")
 async def resolve_issue(
-    errand_id: int,
+    errand_id: uuid.UUID,
     payload: AdminIssueResolveIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -2107,7 +2108,7 @@ async def resolve_issue(
 class CustomerDetailOut(BaseModel):
     """Detailed customer profile"""
 
-    id: int
+    id: uuid.UUID
     email: str
     first_name: Optional[str]
     last_name: Optional[str]
@@ -2699,7 +2700,7 @@ async def reset_admin_visit_metrics(
 
 @router.get("/customers/{user_id}", response_model=CustomerDetailOut)
 async def get_customer_details(
-    user_id: int,
+    user_id: uuid.UUID,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):

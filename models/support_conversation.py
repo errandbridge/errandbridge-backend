@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
+import uuid
+from sqlalchemy import Column, Uuid, Integer, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.sql import func
 from database import Base
 
@@ -6,9 +7,9 @@ from database import Base
 class SupportConversation(Base):
     __tablename__ = "support_conversations"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
     session_id = Column(String, nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user_id = Column(Uuid, ForeignKey("users.id"), nullable=True, index=True)
     status = Column(String, nullable=False, default="open")
     handoff_requested = Column(Boolean, default=False, nullable=False)
     created_at = Column(

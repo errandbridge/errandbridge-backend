@@ -1,6 +1,7 @@
+import uuid
 import os
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Float
+from sqlalchemy import Column, Uuid, Integer, String, DateTime, Boolean, Float
 from sqlalchemy.sql import func
 from database import Base
 
@@ -22,7 +23,7 @@ ENABLE_PAYMENT_METADATA_COLUMNS = _env_truthy(
 
 class Errand(Base):
     __tablename__ = "errands"
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
     reference_number = Column(String, nullable=False, unique=True, index=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
@@ -54,12 +55,10 @@ class Errand(Base):
     status = Column(String, default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
-    user_id = Column(Integer, nullable=False)
+    user_id = Column(String, nullable=False)
 
     # Assignment tracking
-    assigned_to = Column(
-        Integer, nullable=True, index=True
-    )  # Admin user ID who is assigned
+    assigned_to = Column(String, nullable=True, index=True)  # Admin user ID who is assigned
     assigned_at = Column(DateTime(timezone=True), nullable=True)  # When assigned
 
     # Review fields (after completion)
@@ -78,7 +77,7 @@ class Errand(Base):
     pickup_time_slot_date = Column(String, nullable=True)  # Date in YYYY-MM-DD format
 
     # Pilot delivery tracking fields
-    pilot_id = Column(Integer, nullable=True, index=True)  # FK to pilot user
+    pilot_id = Column(String, nullable=True, index=True)  # FK to pilot user
     started_at = Column(
         DateTime(timezone=True), nullable=True
     )  # When pilot started delivery

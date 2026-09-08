@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+import uuid
+from sqlalchemy import Column, Uuid, Integer, String, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from database import Base
 
@@ -6,8 +7,8 @@ from database import Base
 class PilotDocument(Base):
     __tablename__ = "pilot_documents"
 
-    id = Column(Integer, primary_key=True, index=True)
-    pilot_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
+    pilot_id = Column(Uuid, ForeignKey("users.id"), nullable=False, index=True)
     document_type = Column(String, nullable=True)
     original_filename = Column(String, nullable=False)
     stored_filename = Column(String, nullable=False, unique=True)

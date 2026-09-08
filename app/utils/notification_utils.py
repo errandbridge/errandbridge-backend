@@ -1,4 +1,5 @@
 from __future__ import annotations
+import uuid
 
 import asyncio
 import os
@@ -82,7 +83,7 @@ def _availability_secret() -> str:
 
 
 def build_pilot_availability_token(
-    errand_id: int, pilot_id: int, expires_at: int
+    errand_id: uuid.UUID, pilot_id: uuid.UUID, expires_at: int
 ) -> str:
     msg = f"{errand_id}:{pilot_id}:{expires_at}".encode("utf-8")
     return hmac.new(

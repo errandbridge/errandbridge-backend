@@ -1,6 +1,7 @@
+import uuid
 import hashlib
 import json
-from sqlalchemy import Column, DateTime, Integer, String, ForeignKey, Text
+from sqlalchemy import Column, Uuid, DateTime, Integer, String, ForeignKey, Text
 from sqlalchemy.sql import func
 from database import Base
 
@@ -8,9 +9,8 @@ from database import Base
 class VoiceCallEvent(Base):
     __tablename__ = "voice_call_events"
 
-    id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(
-        Integer, ForeignKey("voice_call_sessions.id"), nullable=False, index=True
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
+    session_id = Column(Uuid, ForeignKey("voice_call_sessions.id"), nullable=False, index=True
     )
     event_type = Column(String, nullable=False)
     payload_json = Column(Text, nullable=False)

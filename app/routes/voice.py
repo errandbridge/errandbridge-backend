@@ -80,7 +80,7 @@ async def _log_event(
 @router.post("/call/start")
 async def start_masked_call(
     request: Request,
-    errand_id: int,
+    errand_id: str,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -100,7 +100,7 @@ async def start_masked_call(
     if not pilot or not customer:
         raise HTTPException(status_code=400, detail="Pilot or customer not assigned")
 
-    if int(user_id) not in {int(pilot.id), int(customer.id)}:
+    if int(user_id) not in {str(pilot.id), int(customer.id)}:
         raise HTTPException(status_code=403, detail="Not authorized to start this call")
 
     if not pilot.phone or not customer.phone:
@@ -178,7 +178,7 @@ async def start_masked_call(
 
 @router.post("/status/{session_id}")
 async def twilio_status_callback(
-    session_id: int,
+    session_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
@@ -203,7 +203,7 @@ async def twilio_status_callback(
 
 @router.post("/recording/{session_id}")
 async def twilio_recording_callback(
-    session_id: int,
+    session_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
@@ -277,7 +277,7 @@ async def twilio_recording_callback(
 
 @router.post("/transcription/{session_id}")
 async def twilio_transcription_callback(
-    session_id: int,
+    session_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
@@ -318,7 +318,7 @@ async def twilio_transcription_callback(
 
 @router.get("/twiml/{session_id}")
 async def twiml_for_conference(
-    session_id: int,
+    session_id: str,
     request: Request,
     role: str = "participant",
     db: AsyncSession = Depends(get_db),
