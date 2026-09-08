@@ -1435,59 +1435,25 @@ async def list_errands(
     if size is not None:
         limit = size
 
-    await _ensure_errands_schema_compatible()
+    # Schema check removed from request lifecycle
 
     try:
-        from sqlalchemy.orm import aliased
         from sqlalchemy import cast, String
-
-        pilot_alias = aliased(User)
-        stmt = (
-            select(Errand, pilot_alias)
-            .outerjoin(
-                pilot_alias,
-                cast(Errand.pilot_id, String) == cast(pilot_alias.id, String),
-            )
-            .where(cast(Errand.user_id, String) == str(user_id))
-        )
-        if status_filter:
-            stmt = stmt.where(Errand.status == status_filter.strip())
-        stmt = stmt.order_by(Errand.created_at.desc()).offset(offset).limit(limit)
-
         async with AsyncSessionLocal() as session:
+            stmt = (
+                select(Errand)
+                .where(cast(Errand.user_id, String) == str(user_id))
+            )
+            if status_filter:
+                stmt = stmt.where(Errand.status == status_filter.strip())
+            stmt = stmt.order_by(Errand.created_at.desc()).offset(offset).limit(limit)
+
             result = await session.execute(stmt)
-            rows = result.all()
-
-        out = []
-        for errand_row, pilot_user in rows:
-            pilot_name = None
-            if pilot_user:
-                fn = (pilot_user.first_name or "").strip()
-                ln = (pilot_user.last_name or "").strip()
-                pilot_name = (
-                    f"{fn} {ln}".strip() or pilot_user.email or f"Pilot #{pilot_user.id}"
-                )
-            out.append(_errand_response(errand_row, pilot_name=pilot_name))
-
-        return out
+            errands = result.scalars().all()
+            return [_errand_response(m) for m in errands]
     except Exception as e:
         print(f"[ERRANDS] list_errands error: {e}", flush=True)
-        try:
-            from sqlalchemy import cast, String
-            async with AsyncSessionLocal() as session:
-                stmt_simple = (
-                    select(Errand)
-                    .where(cast(Errand.user_id, String) == str(user_id))
-                    .order_by(Errand.created_at.desc())
-                    .offset(offset)
-                    .limit(limit)
-                )
-                res = await session.execute(stmt_simple)
-                errands = res.scalars().all()
-                return [_errand_response(m) for m in errands]
-        except Exception as inner_e:
-            print(f"[ERRANDS] list_errands fallback error: {inner_e}", flush=True)
-            return []
+        return []
 
 
 class ErrandStatusUpdateIn(BaseModel):
