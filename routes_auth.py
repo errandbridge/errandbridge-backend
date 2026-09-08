@@ -56,6 +56,7 @@ from app.utils.admin_utils import admin_emails
 from database import get_db
 from models import Errand, ErrandAttachment, User
 from app.utils.otp import generate_numeric_code, hash_code, now_ts
+from app.utils.email_templates import get_security_code_email
 from app.services.emailer import send_email
 from app.services.sms_sender import send_sms
 
@@ -570,13 +571,15 @@ async def admin_diagnostics(
 
 def _build_otp_body(
     *, email: str, code: str, purpose: str, mode: OtpMode
-) -> tuple[str, str | None]:
+) -> tuple[str, str | None, str | None]:
     link = _build_otp_link(email, code)
     if mode in ("link", "both") and not link:
         mode = "code"
 
+    body_html = None
     if mode == "code":
         body = f"Your security code is:\n\n{code}\n\n" "It expires in 10 minutes."
+        body_html = get_security_code_email(code=code)
     elif mode == "link":
         body = (
             f"Use this link to complete {purpose}:\n\n{link}\n\n"
@@ -588,8 +591,9 @@ def _build_otp_body(
             f"Or use this link to complete {purpose}:\n\n{link}\n\n"
             "It expires in 10 minutes."
         )
+        body_html = get_security_code_email(code=code)
 
-    return body, link
+    return body, link, body_html
 
 
 async def _send_otp_for_user(
@@ -624,7 +628,7 @@ async def _send_otp_for_user(
     user.email_otp_attempts = 0
     await db.commit()
 
-    body_text, link = _build_otp_body(
+    body_text, link, body_html = _build_otp_body(
         email=user.email, code=code, purpose=purpose, mode=mode
     )
 
@@ -651,6 +655,7 @@ async def _send_otp_for_user(
             send_email,
             to_email=user.email,
             subject="Your ErrandBridge security code",
+            body_html=body_html,
             body_text=(
                 f"{body_text}\n\n"
                 f"If you did not request a {purpose}, you can ignore this message."
@@ -1951,6 +1956,7 @@ async def otp_verify(
 
     # Clear OTP after successful login
     _clear_otp(user)
+    user.is_email_verified = True
     db.add(user)
     await db.commit()
     await db.refresh(user)

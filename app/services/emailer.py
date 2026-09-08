@@ -168,7 +168,7 @@ def smtp_health_check() -> HealthResult:
         )
 
 
-def send_email(*, to_email: str, subject: str, body_text: str) -> SendResult:
+def send_email(*, to_email: str, subject: str, body_text: str, body_html: str | None = None) -> SendResult:
     """Send an email.
 
     - If SMTP env vars are configured, sends via SMTP.
@@ -182,13 +182,13 @@ def send_email(*, to_email: str, subject: str, body_text: str) -> SendResult:
 
     if _graph_enabled():
         result = _send_via_graph(
-            to_email=to_email, subject=subject, body_text=body_text
+            to_email=to_email, subject=subject, body_text=body_text, body_html=body_html
         )
         if result.delivered:
             return result
 
     if _smtp_enabled():
-        result = _send_via_smtp(to_email=to_email, subject=subject, body_text=body_text)
+        result = _send_via_smtp(to_email=to_email, subject=subject, body_text=body_text, body_html=body_html)
         if not result.delivered:
             if _stdout_fallback_allowed():
                 print("\n--- EMAIL (smtp failed; fallback stdout) ---")
@@ -215,7 +215,7 @@ def send_email(*, to_email: str, subject: str, body_text: str) -> SendResult:
         return SendResult(delivered=True, provider="stdout", detail="logged_to_stdout")
 
 
-def _send_via_graph(*, to_email: str, subject: str, body_text: str) -> SendResult:
+def _send_via_graph(*, to_email: str, subject: str, body_text: str, body_html: str | None = None) -> SendResult:
     import httpx
 
     tenant = (os.getenv("GRAPH_TENANT_ID") or "").strip()
@@ -251,7 +251,7 @@ def _send_via_graph(*, to_email: str, subject: str, body_text: str) -> SendResul
             mail_payload = {
                 "message": {
                     "subject": subject,
-                    "body": {"contentType": "Text", "content": body_text},
+                    "body": {"contentType": "HTML" if body_html else "Text", "content": body_html or body_text},
                     "toRecipients": [{"emailAddress": {"address": to_email}}],
                 },
                 "saveToSentItems": "false",
@@ -289,7 +289,7 @@ def _send_via_graph(*, to_email: str, subject: str, body_text: str) -> SendResul
         return SendResult(delivered=False, provider="graph", detail=safe_detail)
 
 
-def _send_via_smtp(*, to_email: str, subject: str, body_text: str) -> SendResult:
+def _send_via_smtp(*, to_email: str, subject: str, body_text: str, body_html: str | None = None) -> SendResult:
     host = _smtp_host()
     port = int(os.getenv("SMTP_PORT", "587"))
     username = (os.getenv("SMTP_USERNAME") or "").strip() or None
@@ -319,6 +319,8 @@ def _send_via_smtp(*, to_email: str, subject: str, body_text: str) -> SendResult
         if reply_to:
             msg["Reply-To"] = reply_to
         msg.set_content(body_text)
+        if body_html:
+            msg.add_alternative(body_html, subtype="html")
 
         force_ipv4 = os.getenv("SMTP_FORCE_IPV4", "true").strip().lower() in (
             "1",
