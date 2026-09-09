@@ -316,7 +316,7 @@ async def update_availability(
         logger.error(f"Error updating pilot availability: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update availability: {str(e)}",
+            detail="Unable to update availability right now. Please try again in a moment.",
         )
 
 
