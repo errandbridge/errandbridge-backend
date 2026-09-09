@@ -1,3 +1,4 @@
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -554,3 +555,90 @@ async def test_get_profile_exposes_dispatch_fit_flags(monkeypatch):
     assert payload["cross_city_available"] is True
     assert payload["service_radius_km"] == 18
     assert payload["service_area_text"] == "Lagos"
+
+
+@pytest.mark.asyncio
+async def test_update_availability_handles_uuid_actor(monkeypatch):
+    pilot_uuid = uuid.uuid4()
+    user = SimpleNamespace(
+        id=pilot_uuid,
+        pilot_availability="offline",
+        admin_dispatch_status="enabled",
+        admin_dispatch_note=None,
+        pilot_status_changed_at=None,
+        pilot_status_changed_by=None,
+    )
+
+    async def fake_current_user(_authorization, _db):
+        return user
+
+    monkeypatch.setattr(pilot_profile, "_get_current_user", fake_current_user)
+
+    payload = await pilot_profile.update_availability(
+        payload=pilot_profile.PilotAvailabilityUpdate(availability="online"),
+        authorization="Bearer token",
+        db=FakeDB(),
+    )
+
+    assert payload["ok"] is True
+    assert payload["availability"] == "online"
+    assert user.pilot_availability == "online"
+    assert user.pilot_status_changed_by == pilot_uuid
+
+
+@pytest.mark.asyncio
+async def test_list_available_jobs_handles_uuid_pilot_and_outerjoin(monkeypatch):
+    pilot_uuid = uuid.uuid4()
+    pilot = SimpleNamespace(
+        id=pilot_uuid,
+        pilot_availability="online",
+        admin_dispatch_status="enabled",
+        admin_dispatch_note=None,
+    )
+    errand_uuid = uuid.uuid4()
+    errand = SimpleNamespace(
+        id=errand_uuid,
+        reference_number="EB-TEST-1234",
+        title="Deliver package",
+        description="Test description",
+        status="submitted",
+        pilot_id=None,
+        pickup_location="123 Main St",
+        dropoff_location="456 Elm St",
+        sensitivity="low",
+        created_at=None,
+        note=None,
+        amount=5000,
+        payment_amount_ngn_major=5000,
+        distance_km=4.2,
+        customer_rating=5.0,
+        pickup_time_slot_start=None,
+        pickup_time_slot_end=None,
+        pickup_time_slot_date=None,
+    )
+    customer_uuid = uuid.uuid4()
+    customer = SimpleNamespace(
+        id=customer_uuid,
+        first_name="Alice",
+        last_name="Smith",
+    )
+
+    async def fake_current_user(_authorization, _db):
+        return pilot
+
+    async def fake_policy(_db):
+        return {"show_all_jobs_to_pilots": True}
+
+    monkeypatch.setattr(pilot_delivery, "_get_current_user", fake_current_user)
+    monkeypatch.setattr(pilot_delivery, "get_pilot_dispatch_policy_state", fake_policy)
+
+    db = FakeDB(rows=[(errand, customer)])
+
+    payload = await pilot_delivery.list_available_jobs(
+        authorization="Bearer token",
+        db=db,
+    )
+
+    assert payload["total"] == 1
+    assert payload["errands"][0]["title"] == "Deliver package"
+    assert payload["errands"][0]["customer_name"] == "Alice Smith"

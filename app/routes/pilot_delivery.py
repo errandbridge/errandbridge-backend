@@ -16,7 +16,7 @@ from fastapi import (
     Query,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, cast, String
 from datetime import datetime, timezone
 from typing import Optional
 import asyncio
@@ -415,7 +415,7 @@ async def list_available_jobs(
 
     result = await db.execute(
         select(Errand, User)
-        .join(User, User.id == Errand.user_id)
+        .outerjoin(User, cast(User.id, String) == cast(Errand.user_id, String))
         .where(Errand.status.in_(allowed_statuses))
         .where(or_(Errand.pilot_id.is_(None), Errand.pilot_id == pilot.id))
         .order_by(Errand.created_at.desc())
@@ -457,8 +457,7 @@ async def list_available_jobs(
                 ),
                 "note": errand.note,
                 # Pilots should not receive direct customer contact details.
-                "customer_name": f"{user.first_name or ''} {user.last_name or ''}".strip()
-                or "Customer",
+                "customer_name": (f"{user.first_name or ''} {user.last_name or ''}".strip() or "Customer") if user else "Customer",
                 "amount": getattr(errand, "amount", 0),
                 "payment_amount_ngn_major": getattr(
                     errand, "payment_amount_ngn_major", None
@@ -522,7 +521,7 @@ async def list_pilot_jobs(
 
     query = (
         select(Errand, User)
-        .join(User, User.id == Errand.user_id)
+        .outerjoin(User, cast(User.id, String) == cast(Errand.user_id, String))
         .where(Errand.pilot_id == pilot.id)
     )
 
@@ -555,8 +554,7 @@ async def list_pilot_jobs(
                 ),
                 "note": errand.note,
                 # Pilots should not receive direct customer contact details.
-                "customer_name": f"{user.first_name or ''} {user.last_name or ''}".strip()
-                or "Customer",
+                "customer_name": (f"{user.first_name or ''} {user.last_name or ''}".strip() or "Customer") if user else "Customer",
                 "amount": getattr(errand, "amount", 0),
                 "payment_amount_ngn_major": getattr(
                     errand, "payment_amount_ngn_major", None

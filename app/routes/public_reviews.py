@@ -4,7 +4,7 @@ import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -125,7 +125,7 @@ async def list_public_reviews(
 
     rows = await db.execute(
         select(Errand, User)
-        .join(User, User.id == Errand.user_id, isouter=True)
+        .join(User, cast(User.id, String) == cast(Errand.user_id, String), isouter=True)
         .where(Errand.review_status == "reviewed")
         .where(Errand.reviewer_rating.is_not(None))
         .order_by(desc(Errand.review_completed_at), desc(Errand.id))

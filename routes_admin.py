@@ -833,7 +833,7 @@ async def list_errands(
     authorization = request.headers.get("authorization")
     admin = await _require_admin(db, authorization)
 
-    q = select(Errand, User).join(User, User.id == Errand.user_id)
+    q = select(Errand, User).join(User, cast(User.id, String) == cast(Errand.user_id, String))
     if user_id is not None:
         q = q.where(Errand.user_id == user_id)
     if status is not None:
@@ -1030,7 +1030,7 @@ async def get_errand_detail(
 
     res = await db.execute(
         select(Errand, User)
-        .join(User, User.id == Errand.user_id)
+        .join(User, cast(User.id, String) == cast(Errand.user_id, String))
         .where(Errand.id == errand_id)
         .limit(1)
     )
@@ -1079,7 +1079,7 @@ async def list_attachments(
     q = (
         select(ErrandAttachment, Errand, User)
         .join(Errand, Errand.id == ErrandAttachment.errand_id)
-        .join(User, User.id == Errand.user_id)
+        .join(User, cast(User.id, String) == cast(Errand.user_id, String))
         .order_by(ErrandAttachment.id.desc())
     )
 
@@ -1974,7 +1974,7 @@ async def list_availability_events(
     res = await db.execute(
         select(ErrandEvent, Errand, User)
         .join(Errand, Errand.id == ErrandEvent.errand_id)
-        .join(User, User.id == Errand.user_id)
+        .join(User, cast(User.id, String) == cast(Errand.user_id, String))
         .where(
             ErrandEvent.event_type.in_(
                 [

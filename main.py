@@ -992,6 +992,23 @@ async def _ensure_schema_compatibility() -> None:
                             ALTER TABLE errands ALTER COLUMN user_id TYPE VARCHAR USING user_id::varchar;
                         END IF;
 
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name = 'users' 
+                            AND column_name = 'pilot_status_changed_by' 
+                            AND data_type = 'integer'
+                        ) THEN
+                            ALTER TABLE users ALTER COLUMN pilot_status_changed_by TYPE UUID USING NULL;
+                        END IF;
+
+                        -- Ensure implicit cast between VARCHAR and UUID exists so joins on users.id (UUID) and errands.user_id (VARCHAR) never crash
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_cast 
+                            WHERE castsource = 'varchar'::regtype AND casttarget = 'uuid'::regtype
+                        ) THEN
+                            CREATE CAST (varchar AS uuid) WITH INOUT AS IMPLICIT;
+                        END IF;
+
                         -- Backfill and cleanly separate phone numbers from names
                         IF EXISTS (
                             SELECT 1 FROM information_schema.columns 

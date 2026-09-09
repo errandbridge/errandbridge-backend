@@ -56,7 +56,7 @@ class User(Base):
     admin_dispatch_status = Column(String, nullable=False, default="enabled")
     admin_dispatch_note = Column(String, nullable=True)
     pilot_status_changed_at = Column(DateTime(timezone=True), nullable=True)
-    pilot_status_changed_by = Column(Integer, nullable=True)
+    pilot_status_changed_by = Column(Uuid, nullable=True)
 
     # Performance metrics
     rating = Column(Float, nullable=True, default=4.8)

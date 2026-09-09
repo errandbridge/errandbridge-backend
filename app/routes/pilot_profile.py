@@ -144,6 +144,7 @@ def _serialize_profile(user: User) -> dict:
         "last_name": user.last_name,
         "phone": user.phone,
         "is_email_verified": bool(user.is_email_verified),
+        "must_change_password": bool(getattr(user, "must_change_password", False)),
         "id_verification_status": getattr(user, "id_verification_status", "pending"),
         "address_verification_status": getattr(
             user, "address_verification_status", "pending"
@@ -248,8 +249,16 @@ async def update_availability(
             and current_state["admin_dispatch_status"] != ADMIN_DISPATCH_ENABLED
         ):
             next_state = set_pilot_availability(user, "offline", actor_id=user.id)
-            await db.commit()
-            await db.refresh(user)
+            try:
+                await db.commit()
+                await db.refresh(user)
+            except Exception as commit_err:
+                logger.warning(f"Initial offline commit failed, retrying without actor: {commit_err}")
+                await db.rollback()
+                user = await db.get(User, user.id)
+                next_state = set_pilot_availability(user, "offline", actor_id=None)
+                await db.commit()
+                await db.refresh(user)
             return {
                 "ok": True,
                 "message": current_state["dispatch_block_reason"]
@@ -262,8 +271,20 @@ async def update_availability(
             requested_availability,
             actor_id=user.id,
         )
-        await db.commit()
-        await db.refresh(user)
+        try:
+            await db.commit()
+            await db.refresh(user)
+        except Exception as commit_err:
+            logger.warning(f"Initial availability commit failed, retrying without actor: {commit_err}")
+            await db.rollback()
+            user = await db.get(User, user.id)
+            next_state = set_pilot_availability(
+                user,
+                requested_availability,
+                actor_id=None,
+            )
+            await db.commit()
+            await db.refresh(user)
 
         return {
             "ok": True,

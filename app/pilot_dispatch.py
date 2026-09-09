@@ -1,4 +1,5 @@
 from __future__ import annotations
+import uuid
 
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -69,7 +70,7 @@ def serialize_pilot_dispatch_state(user: Any) -> dict[str, Any]:
         "can_accept_jobs": can_accept_jobs,
         "dispatch_block_reason": block_reason,
         "pilot_status_changed_at": getattr(user, "pilot_status_changed_at", None),
-        "pilot_status_changed_by": getattr(user, "pilot_status_changed_by", None),
+        "pilot_status_changed_by": str(getattr(user, "pilot_status_changed_by", None)) if getattr(user, "pilot_status_changed_by", None) else None,
     }
 
 
@@ -77,12 +78,18 @@ def set_pilot_availability(
     user: Any,
     availability: str,
     *,
-    actor_id: Optional[int] = None,
+    actor_id: Optional[Any] = None,
 ) -> dict[str, Any]:
     normalized = normalize_pilot_availability(availability)
     user.pilot_availability = normalized
     user.pilot_status_changed_at = utcnow()
-    user.pilot_status_changed_by = actor_id
+    if actor_id is not None:
+        try:
+            if isinstance(actor_id, str):
+                actor_id = uuid.UUID(actor_id)
+            user.pilot_status_changed_by = actor_id
+        except Exception:
+            user.pilot_status_changed_by = None
     return serialize_pilot_dispatch_state(user)
 
 
@@ -90,7 +97,7 @@ def set_admin_dispatch_status(
     user: Any,
     admin_dispatch_status: str,
     *,
-    actor_id: Optional[int] = None,
+    actor_id: Optional[Any] = None,
     note: Optional[str] = None,
     force_offline: bool = True,
 ) -> dict[str, Any]:
@@ -100,7 +107,13 @@ def set_admin_dispatch_status(
     if force_offline and normalized != ADMIN_DISPATCH_ENABLED:
         user.pilot_availability = PILOT_AVAILABILITY_OFFLINE
     user.pilot_status_changed_at = utcnow()
-    user.pilot_status_changed_by = actor_id
+    if actor_id is not None:
+        try:
+            if isinstance(actor_id, str):
+                actor_id = uuid.UUID(actor_id)
+            user.pilot_status_changed_by = actor_id
+        except Exception:
+            user.pilot_status_changed_by = None
     return serialize_pilot_dispatch_state(user)
 
 

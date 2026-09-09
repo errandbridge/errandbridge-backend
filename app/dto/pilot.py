@@ -213,6 +213,7 @@ class PilotProfileResponse(BaseModel):
     license_plate: Optional[str] = Field(default=None, description="Registration plate")
     insurance_provider: Optional[str] = Field(default=None, description="Insurance company")
     insurance_expiry: Optional[str] = Field(default=None, description="Insurance expiry date")
+    must_change_password: bool = Field(default=False, description="Whether password change is required")
 
 
 class PilotProfileUpdateResponse(BaseModel):
