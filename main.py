@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional, Literal, Union
 from database import AsyncSessionLocal
-from schema import schema, _make_reference_number
+from schema import schema, _make_reference_number, _safe_record_errand_event
 from app.routes.tracking import router as tracking_router
 from app.routes.incidents import router as incidents_router
 from app.routes.support import router as support_router
@@ -1478,15 +1478,14 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
             payment_session_row.used_for_errand_id = str(model.id)
             payment_session_row.used_at = datetime.now(timezone.utc)
 
-        session.add(
-            ErrandEvent(
-                errand_id=model.id,
-                event_type="created",
-                old_status=None,
-                new_status="submitted",
-                note=None,
-                user_id=str(user_id),
-            )
+        await _safe_record_errand_event(
+            session=session,
+            errand_id=model.id,
+            event_type="created",
+            old_status=None,
+            new_status="submitted",
+            note=None,
+            user_id=str(user_id),
         )
 
         await session.commit()
