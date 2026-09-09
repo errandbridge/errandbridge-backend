@@ -82,14 +82,23 @@ def set_pilot_availability(
     actor_id: Optional[Any] = None,
 ) -> dict[str, Any]:
     normalized = normalize_pilot_availability(availability)
-    user.pilot_availability = normalized
-    user.pilot_status_changed_at = utcnow()
+    if hasattr(user, "pilot_availability"):
+        user.pilot_availability = normalized
+    if hasattr(user, "pilot_status_changed_at"):
+        user.pilot_status_changed_at = utcnow()
     if actor_id is not None:
         try:
             if isinstance(actor_id, str):
                 actor_id = uuid.UUID(actor_id)
-            user.pilot_status_changed_by = actor_id
+            elif not isinstance(actor_id, uuid.UUID):
+                actor_id = None
+            if hasattr(user, "pilot_status_changed_by"):
+                user.pilot_status_changed_by = actor_id
         except Exception:
+            if hasattr(user, "pilot_status_changed_by"):
+                user.pilot_status_changed_by = None
+    else:
+        if hasattr(user, "pilot_status_changed_by"):
             user.pilot_status_changed_by = None
     return serialize_pilot_dispatch_state(user)
 

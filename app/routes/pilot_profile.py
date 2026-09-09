@@ -275,16 +275,21 @@ async def update_availability(
             await db.commit()
             await db.refresh(user)
         except Exception as commit_err:
-            logger.warning(f"Initial availability commit failed, retrying without actor: {commit_err}")
+            logger.warning(f"Initial availability commit failed, trying fallback: {commit_err}")
             await db.rollback()
-            user = await db.get(User, user.id)
-            next_state = set_pilot_availability(
-                user,
-                requested_availability,
-                actor_id=None,
-            )
-            await db.commit()
-            await db.refresh(user)
+            try:
+                from sqlalchemy import text
+                await db.execute(
+                    text("UPDATE users SET pilot_availability = :avail WHERE id = :uid"),
+                    {"avail": requested_availability, "uid": user.id},
+                )
+                await db.commit()
+                user = await db.get(User, user.id)
+                next_state = serialize_pilot_dispatch_state(user)
+            except Exception as sql_err:
+                logger.error(f"Fallback availability update failed: {sql_err}")
+                await db.rollback()
+                raise
 
         return {
             "ok": True,
@@ -294,10 +299,10 @@ async def update_availability(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating pilot availability: {str(e)}")
+        logger.error(f"Error updating pilot availability: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update availability",
+            detail=f"Failed to update availability: {str(e)}",
         )
 
 

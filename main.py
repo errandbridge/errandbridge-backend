@@ -689,6 +689,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    if not _schema_compatibility_done:
+        try:
+            await _ensure_schema_compatibility_once()
+        except Exception as schema_err:
+            print(f"[MIDDLEWARE] Schema check failed: {schema_err}", flush=True)
     response = await call_next(request)
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -946,6 +951,21 @@ def _derive_draft(prompt: str, template_id: Optional[str]) -> SuggestResponse:
     return SuggestResponse(title=title_raw, description=description)
 
 
+_schema_compatibility_done = False
+_schema_compatibility_lock = asyncio.Lock()
+
+
+async def _ensure_schema_compatibility_once() -> None:
+    global _schema_compatibility_done
+    if _schema_compatibility_done:
+        return
+    async with _schema_compatibility_lock:
+        if _schema_compatibility_done:
+            return
+        await _ensure_schema_compatibility()
+        _schema_compatibility_done = True
+
+
 async def _ensure_schema_compatibility() -> None:
     """Ensure columns with historical type mismatches are safely converted to VARCHAR."""
     try:
@@ -1000,6 +1020,13 @@ async def _ensure_schema_compatibility() -> None:
                         ) THEN
                             ALTER TABLE users ALTER COLUMN pilot_status_changed_by TYPE UUID USING NULL;
                         END IF;
+
+                        -- Ensure pilot columns exist on users table
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS pilot_availability VARCHAR NOT NULL DEFAULT 'offline';
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_dispatch_status VARCHAR NOT NULL DEFAULT 'enabled';
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_dispatch_note VARCHAR;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS pilot_status_changed_at TIMESTAMPTZ;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS pilot_status_changed_by UUID;
 
                         -- Ensure implicit cast between VARCHAR and UUID exists so joins on users.id (UUID) and errands.user_id (VARCHAR) never crash
                         IF NOT EXISTS (
