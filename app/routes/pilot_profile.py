@@ -40,6 +40,9 @@ from app.dto import (
 from auth import decode_access_token
 from app.pilot_dispatch import (
     ADMIN_DISPATCH_ENABLED,
+    PILOT_AVAILABILITY_ONLINE,
+    PILOT_AVAILABILITY_OFFLINE,
+    _dispatch_block_reason,
     serialize_pilot_dispatch_state,
     set_pilot_availability,
 )
@@ -244,52 +247,66 @@ async def update_availability(
         requested_availability = (payload.availability or "").strip().lower()
         current_state = serialize_pilot_dispatch_state(user)
 
+        user_id = user.id
+        admin_status = current_state.get("admin_dispatch_status") or ADMIN_DISPATCH_ENABLED
+        admin_note = current_state.get("admin_dispatch_note")
+
         if (
             requested_availability == "online"
-            and current_state["admin_dispatch_status"] != ADMIN_DISPATCH_ENABLED
+            and admin_status != ADMIN_DISPATCH_ENABLED
         ):
-            next_state = set_pilot_availability(user, "offline", actor_id=user.id)
+            next_state = set_pilot_availability(user, "offline", actor_id=user_id)
             try:
                 await db.commit()
-                await db.refresh(user)
             except Exception as commit_err:
-                logger.warning(f"Initial offline commit failed, retrying without actor: {commit_err}")
-                await db.rollback()
-                user = await db.get(User, user.id)
+                logger.warning(f"Initial offline commit failed: {commit_err}")
+                if hasattr(db, "rollback"):
+                    await db.rollback()
                 next_state = set_pilot_availability(user, "offline", actor_id=None)
-                await db.commit()
-                await db.refresh(user)
+                try:
+                    await db.commit()
+                except Exception:
+                    if hasattr(db, "rollback"):
+                        await db.rollback()
             return {
                 "ok": True,
-                "message": current_state["dispatch_block_reason"]
+                "message": current_state.get("dispatch_block_reason")
                 or "Dispatch access is disabled by admin.",
-                **serialize_pilot_dispatch_state(user),
+                **next_state,
             }
 
         next_state = set_pilot_availability(
             user,
             requested_availability,
-            actor_id=user.id,
+            actor_id=user_id,
         )
         try:
             await db.commit()
-            await db.refresh(user)
         except Exception as commit_err:
-            logger.warning(f"Initial availability commit failed, trying fallback: {commit_err}")
-            await db.rollback()
-            try:
-                from sqlalchemy import text
-                await db.execute(
-                    text("UPDATE users SET pilot_availability = :avail WHERE id = :uid"),
-                    {"avail": requested_availability, "uid": user.id},
-                )
-                await db.commit()
-                user = await db.get(User, user.id)
-                next_state = serialize_pilot_dispatch_state(user)
-            except Exception as sql_err:
-                logger.error(f"Fallback availability update failed: {sql_err}")
+            logger.warning(f"Initial availability commit failed: {commit_err}")
+            if hasattr(db, "rollback"):
                 await db.rollback()
-                raise
+            set_pilot_availability(
+                user,
+                requested_availability,
+                actor_id=None,
+            )
+            try:
+                await db.commit()
+            except Exception as retry_err:
+                logger.warning(f"Retry availability commit failed: {retry_err}")
+                if hasattr(db, "rollback"):
+                    await db.rollback()
+                try:
+                    from sqlalchemy import text
+                    await db.execute(
+                        text(f"UPDATE users SET pilot_availability = '{requested_availability}' WHERE id = '{user_id}'")
+                    )
+                    await db.commit()
+                except Exception as sql_err:
+                    logger.error(f"Fallback availability update failed: {sql_err}")
+                    if hasattr(db, "rollback"):
+                        await db.rollback()
 
         return {
             "ok": True,

@@ -952,18 +952,18 @@ def _derive_draft(prompt: str, template_id: Optional[str]) -> SuggestResponse:
 
 
 _schema_compatibility_done = False
-_schema_compatibility_lock = asyncio.Lock()
 
 
 async def _ensure_schema_compatibility_once() -> None:
     global _schema_compatibility_done
     if _schema_compatibility_done:
         return
-    async with _schema_compatibility_lock:
-        if _schema_compatibility_done:
-            return
+    _schema_compatibility_done = True
+    try:
         await _ensure_schema_compatibility()
-        _schema_compatibility_done = True
+    except Exception as e:
+        _schema_compatibility_done = False
+        print(f"[STARTUP] Schema compatibility failed: {e}", flush=True)
 
 
 async def _ensure_schema_compatibility() -> None:
