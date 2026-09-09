@@ -65,6 +65,7 @@ def serialize_pilot_dispatch_state(user: Any) -> dict[str, Any]:
     can_accept_jobs = block_reason is None
     return {
         "availability": availability,
+        "pilot_availability": availability,
         "admin_dispatch_status": admin_dispatch_status,
         "admin_dispatch_note": getattr(user, "admin_dispatch_note", None),
         "can_accept_jobs": can_accept_jobs,

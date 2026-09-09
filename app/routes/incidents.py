@@ -148,7 +148,7 @@ async def add_incident_message(
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
-    if not incident.pilot_id or int(incident.pilot_id) != str(pilot.id):
+    if not incident.pilot_id or str(incident.pilot_id) != str(pilot.id):
         raise HTTPException(status_code=403, detail="Not assigned to this incident")
 
     message = IncidentMessage(
@@ -426,7 +426,7 @@ async def list_incidents_for_errand(
         await require_admin_user(db, user.id)
     except HTTPException:
         if not await db.scalar(
-            select(Errand).where(Errand.id == errand_id, Errand.user_id == user.id)
+            select(Errand).where(Errand.id == errand_id, Errand.user_id == str(user.id))
         ):
             raise
 

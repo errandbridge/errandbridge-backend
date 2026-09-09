@@ -19,6 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, cast, String
 from datetime import datetime, timezone
 from typing import Optional
+import uuid
+from typing import Any
+
+def _pilot_id_val(pilot_id: Any) -> Any:
+    return str(pilot_id) if isinstance(pilot_id, uuid.UUID) else pilot_id
+
 import asyncio
 import re
 import sys
@@ -417,7 +423,7 @@ async def list_available_jobs(
         select(Errand, User)
         .outerjoin(User, cast(User.id, String) == cast(Errand.user_id, String))
         .where(Errand.status.in_(allowed_statuses))
-        .where(or_(Errand.pilot_id.is_(None), Errand.pilot_id == pilot.id))
+        .where(or_(Errand.pilot_id.is_(None), Errand.pilot_id == _pilot_id_val(pilot.id)))
         .order_by(Errand.created_at.desc())
     )
 
@@ -425,7 +431,8 @@ async def list_available_jobs(
     for errand, user in result.all():
         matches_dispatch_policy = True
         acceptance_block_reason = None
-        if errand.pilot_id != pilot.id:
+        is_assigned_to_me = errand.pilot_id is not None and str(errand.pilot_id) == str(pilot.id)
+        if not is_assigned_to_me:
             is_visible, reason = _open_pool_visibility_check(
                 errand,
                 pilot,
@@ -522,7 +529,7 @@ async def list_pilot_jobs(
     query = (
         select(Errand, User)
         .outerjoin(User, cast(User.id, String) == cast(Errand.user_id, String))
-        .where(Errand.pilot_id == pilot.id)
+        .where(Errand.pilot_id == _pilot_id_val(pilot.id))
     )
 
     if statuses:
@@ -609,7 +616,7 @@ async def accept_job(
 
     # Prevent pilots from accepting errands that are assigned to another pilot.
     # Unassigned errands are claimable (see /available-jobs behavior).
-    if errand.pilot_id is not None and str(errand.pilot_id) != str(pilot.id):
+    if errand.pilot_id is not None and str(errand.pilot_id) != _pilot_id_val(pilot.id):
         try:
             await notify_admin_status(
                 db,
@@ -626,7 +633,7 @@ async def accept_job(
             detail="Errand is assigned to another pilot",
         )
 
-    if errand.pilot_id is not None and int(errand.pilot_id) == str(pilot.id):
+    if errand.pilot_id is not None and str(errand.pilot_id) == _pilot_id_val(pilot.id):
         normalized_status = _normalize_status(errand.status)
         if normalized_status in ["accepted", "picked_up", "in_progress", "delivered"]:
             customer = await db.get(User, errand.user_id)
@@ -666,7 +673,7 @@ async def accept_job(
 
     active_conflict = await db.scalar(
         select(Errand)
-        .where(Errand.pilot_id == pilot.id)
+        .where(Errand.pilot_id == _pilot_id_val(pilot.id))
         .where(Errand.id != errand.id)
         .where(Errand.status.in_(["accepted", "picked_up", "in_progress", "delivered"]))
         .limit(1)
@@ -694,7 +701,7 @@ async def accept_job(
             )
 
     previous_status = errand.status
-    errand.pilot_id = pilot.id
+    errand.pilot_id = _pilot_id_val(pilot.id)
     errand.status = "accepted"
     if not errand.assigned_at:
         errand.assigned_at = datetime.now(timezone.utc)
@@ -709,7 +716,7 @@ async def accept_job(
             if was_unassigned
             else "Pilot accepted the assigned errand"
         ),
-        user_id=pilot.id,
+        user_id=_pilot_id_val(pilot.id),
     )
     db.add(event)
 
@@ -805,7 +812,7 @@ async def list_availability_history(
     result = await db.execute(
         select(ErrandEvent, Errand)
         .join(Errand, Errand.id == ErrandEvent.errand_id)
-        .where(ErrandEvent.user_id == pilot.id)
+        .where(ErrandEvent.user_id == _pilot_id_val(pilot.id))
         .where(
             ErrandEvent.event_type.in_(
                 [
@@ -861,7 +868,7 @@ async def decline_job(
             status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
         )
 
-    if not errand.pilot_id or str(errand.pilot_id) != str(pilot.id):
+    if not errand.pilot_id or str(errand.pilot_id) != _pilot_id_val(pilot.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
         )
@@ -897,7 +904,7 @@ async def decline_job(
         old_status=previous_status,
         new_status=errand.status,
         note="Pilot declined the errand",
-        user_id=pilot.id,
+        user_id=_pilot_id_val(pilot.id),
     )
     db.add(event)
 
@@ -985,7 +992,7 @@ async def availability_response(
             status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
         )
 
-    if not errand.pilot_id or str(errand.pilot_id) != str(pilot.id):
+    if not errand.pilot_id or str(errand.pilot_id) != _pilot_id_val(pilot.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
         )
@@ -1005,7 +1012,7 @@ async def availability_response(
                 old_status=previous_status,
                 new_status=errand.status,
                 note="Pilot confirmed availability",
-                user_id=pilot.id,
+                user_id=_pilot_id_val(pilot.id),
             )
         )
         await db.commit()
@@ -1023,7 +1030,7 @@ async def availability_response(
             old_status=previous_status,
             new_status=errand.status,
             note="Pilot unavailable; assignment released",
-            user_id=pilot.id,
+            user_id=_pilot_id_val(pilot.id),
         )
     )
     await db.commit()
@@ -1063,7 +1070,7 @@ async def upload_pilot_attachment(
             status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
         )
 
-    if not errand.pilot_id or str(errand.pilot_id) != str(pilot.id):
+    if not errand.pilot_id or str(errand.pilot_id) != _pilot_id_val(pilot.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
         )
@@ -1363,7 +1370,7 @@ async def submit_delay_reason(
             status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
         )
 
-    if not errand.pilot_id or str(errand.pilot_id) != str(pilot.id):
+    if not errand.pilot_id or str(errand.pilot_id) != _pilot_id_val(pilot.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Not assigned to this errand"
         )
@@ -1380,7 +1387,7 @@ async def submit_delay_reason(
             old_status=errand.status,
             new_status=errand.status,
             note=reason,
-            user_id=pilot.id,
+            user_id=_pilot_id_val(pilot.id),
         )
     )
 
@@ -1422,7 +1429,7 @@ async def submit_delay_reason(
             old_status=errand.status,
             new_status=errand.status,
             note=reason,
-            user_id=pilot.id,
+            user_id=_pilot_id_val(pilot.id),
         )
     )
     await db.commit()
@@ -1760,7 +1767,7 @@ async def get_active_delivery(
         query = (
             select(Errand)
             .filter(Errand.status == "in_progress")
-            .filter(Errand.pilot_id == pilot.id)
+            .filter(Errand.pilot_id == _pilot_id_val(pilot.id))
             .order_by(Errand.started_at.desc(), Errand.id.desc())
         )
         result = await db.execute(query)

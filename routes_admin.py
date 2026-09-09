@@ -940,8 +940,8 @@ async def list_errand_chats(
         )
         .join(agg_subq, agg_subq.c.errand_id == Errand.id)
         .outerjoin(last_subq, last_subq.c.errand_id == Errand.id)
-        .join(customer, customer.id == Errand.user_id)
-        .outerjoin(pilot, pilot.id == Errand.pilot_id)
+        .join(customer, cast(customer.id, String) == cast(Errand.user_id, String))
+        .outerjoin(pilot, cast(pilot.id, String) == cast(Errand.pilot_id, String))
     )
 
     if status:
@@ -1491,7 +1491,7 @@ async def assign_pilot_to_errand(
 
     future_errand = await db.scalar(
         select(Errand)
-        .where(Errand.pilot_id == pilot.id)
+        .where(Errand.pilot_id == str(pilot.id))
         .where(Errand.status == "assigned")
         .limit(1)
     )
@@ -1502,7 +1502,7 @@ async def assign_pilot_to_errand(
         )
 
     previous_status = errand.status
-    errand.pilot_id = payload.pilot_id
+    errand.pilot_id = str(payload.pilot_id)
     errand.status = "assigned"
     errand.assigned_to = admin.id
     errand.assigned_at = datetime.now(timezone.utc)

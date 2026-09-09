@@ -173,10 +173,16 @@ class PilotStatsResponse(BaseModel):
     """Pilot performance metrics and historical statistics."""
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
-    pilot_id: FlexibleId = Field(..., description="Pilot user identifier")
-    completed_errands: int = Field(..., description="Total successfully completed errands")
-    active_errands: int = Field(..., description="Count of active deliveries")
-    total_errands: int = Field(..., description="Total errands handled")
+    pilot_id: Optional[FlexibleId] = Field(default=None, description="Pilot user identifier")
+    completed_errands: Optional[int] = Field(default=0, description="Total successfully completed errands")
+    active_errands: Optional[int] = Field(default=0, description="Count of active deliveries")
+    total_errands: Optional[int] = Field(default=0, description="Total errands handled")
+    totalDeliveries: Optional[int] = Field(default=0, description="Total deliveries")
+    totalErrands: Optional[int] = Field(default=0, description="Total errands")
+    completedToday: Optional[int] = Field(default=0, description="Completed today")
+    todayDeliveries: Optional[int] = Field(default=0, description="Completed today")
+    earnings: Optional[float] = Field(default=0.0, description="Earnings")
+    rating: Optional[float] = Field(default=4.8, description="Rating")
     customer_rating: Optional[float] = Field(default=None, description="Average star rating (1-5)")
     active_delivery: Optional[dict[str, Any]] = Field(default=None, description="Current active delivery summary")
     pilot_availability: Optional[str] = Field(default="offline", description="Online availability state")
@@ -187,8 +193,14 @@ class PilotAvailabilityResponse(BaseModel):
     """Confirmation of pilot availability toggle."""
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
-    pilot_availability: str = Field(..., description="Updated availability status")
-    message: str = Field(..., description="Status message")
+    pilot_availability: Optional[str] = Field(default="offline", description="Updated availability status")
+    availability: Optional[str] = Field(default="offline", description="Updated availability status")
+    admin_dispatch_status: Optional[str] = Field(default="enabled", description="Dispatch status")
+    admin_dispatch_note: Optional[str] = Field(default=None, description="Note on dispatch status")
+    can_accept_jobs: Optional[bool] = Field(default=True, description="Whether pilot can accept jobs")
+    dispatch_block_reason: Optional[str] = Field(default=None, description="Reason if blocked")
+    ok: bool = Field(default=True, description="Success status")
+    message: str = Field(default="Availability updated successfully", description="Status message")
 
 
 class PilotProfileResponse(BaseModel):

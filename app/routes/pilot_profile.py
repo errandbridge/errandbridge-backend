@@ -580,7 +580,7 @@ async def get_pilot_stats(
         # Count only genuinely completed errands for pilot performance/tier stats.
         total_result = await db.execute(
             select(func.count(Errand.id)).where(
-                (Errand.pilot_id == user.id) & (Errand.status == "completed")
+                (Errand.pilot_id == str(user.id)) & (Errand.status == "completed")
             )
         )
         total_completed_errands = total_result.scalar() or 0
@@ -589,7 +589,7 @@ async def get_pilot_stats(
         today = datetime.now().date()
         today_result = await db.execute(
             select(func.count(Errand.id)).where(
-                (Errand.pilot_id == user.id)
+                (Errand.pilot_id == str(user.id))
                 & (Errand.status == "completed")
                 & (func.date(Errand.completed_at) == today)
             )
@@ -599,7 +599,7 @@ async def get_pilot_stats(
         # Get earnings (using tip as earnings for now)
         earnings_result = await db.execute(
             select(func.sum(Errand.tip)).where(
-                (Errand.pilot_id == user.id) & (Errand.status == "completed")
+                (Errand.pilot_id == str(user.id)) & (Errand.status == "completed")
             )
         )
         earnings = float(earnings_result.scalar() or 0)
@@ -608,12 +608,18 @@ async def get_pilot_stats(
         rating = getattr(user, "rating", 4.8)
 
         return {
-            # Keep both keys during rollout so older clients stay in sync.
+            "pilot_id": str(user.id),
+            "completed_errands": total_completed_errands,
+            "active_errands": 0,
+            "total_errands": total_completed_errands,
             "totalDeliveries": total_completed_errands,
             "totalErrands": total_completed_errands,
             "completedToday": completed_today,
+            "todayDeliveries": completed_today,
             "earnings": earnings,
             "rating": rating,
+            "pilot_availability": getattr(user, "pilot_availability", "offline"),
+            "admin_dispatch_status": getattr(user, "admin_dispatch_status", "enabled"),
         }
     except HTTPException:
         raise
