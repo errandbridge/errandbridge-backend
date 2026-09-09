@@ -810,33 +810,42 @@ class AISuggestResponse(BaseModel):
 
 
 class ErrandCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     title: str
     description: Optional[str] = None
     location: Optional[str] = None
     pickup_location: Optional[str] = Field(default=None, alias="pickupLocation")
+    pickupLocation: Optional[str] = None
     dropoff_location: Optional[str] = Field(default=None, alias="dropoffLocation")
+    dropoffLocation: Optional[str] = None
     pickup_contact_name: Optional[str] = Field(default=None, alias="pickupContactName")
+    pickupContactName: Optional[str] = None
     pickup_contact_phone: Optional[str] = Field(
         default=None, alias="pickupContactPhone"
     )
+    pickupContactPhone: Optional[str] = None
     dropoff_contact_name: Optional[str] = Field(
         default=None, alias="dropoffContactName"
     )
+    dropoffContactName: Optional[str] = None
     dropoff_contact_phone: Optional[str] = Field(
         default=None, alias="dropoffContactPhone"
     )
+    dropoffContactPhone: Optional[str] = None
     distance_km: Optional[float] = Field(default=None, alias="distanceKm")
+    distanceKm: Optional[float] = None
     note: Optional[str] = None
     category: Optional[str] = None
     estimated_time: Optional[str] = None
     payment_amount: Optional[float] = None
     payment_session_id: Optional[str] = Field(default=None, alias="paymentSessionId")
-
-    class Config:
-        allow_population_by_field_name = True
+    paymentSessionId: Optional[str] = None
 
 
 class ErrandResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: Union[uuid.UUID, int, str]
     reference_number: Optional[str] = None
     referenceNumber: Optional[str] = None
@@ -846,40 +855,59 @@ class ErrandResponse(BaseModel):
     @classmethod
     def _sync_references(cls, data):
         if isinstance(data, dict):
-            ref = data.get("reference_number") or data.get("referenceNumber")
-            data["reference_number"] = ref
-            data["referenceNumber"] = ref
+            for snk, cml in [
+                ("reference_number", "referenceNumber"),
+                ("pickup_location", "pickupLocation"),
+                ("dropoff_location", "dropoffLocation"),
+                ("pickup_contact_name", "pickupContactName"),
+                ("pickup_contact_phone", "pickupContactPhone"),
+                ("dropoff_contact_name", "dropoffContactName"),
+                ("dropoff_contact_phone", "dropoffContactPhone"),
+                ("assigned_runner_name", "assignedRunnerName"),
+                ("user_id", "userId"),
+                ("pilot_id", "pilotId"),
+                ("created_at", "createdAt"),
+                ("updated_at", "updatedAt"),
+                ("started_at", "startedAt"),
+                ("completed_at", "completedAt"),
+                ("pickup_time_slot_date", "pickupTimeSlotDate"),
+            ]:
+                val = data.get(snk) if data.get(snk) is not None else data.get(cml)
+                data[snk] = val
+                data[cml] = val
         return data
+
     description: Optional[str] = None
-    pickup_location: Optional[str] = Field(default=None, alias="pickupLocation")
-    dropoff_location: Optional[str] = Field(default=None, alias="dropoffLocation")
-    pickup_contact_name: Optional[str] = Field(default=None, alias="pickupContactName")
-    pickup_contact_phone: Optional[str] = Field(
-        default=None, alias="pickupContactPhone"
-    )
-    dropoff_contact_name: Optional[str] = Field(
-        default=None, alias="dropoffContactName"
-    )
-    dropoff_contact_phone: Optional[str] = Field(
-        default=None, alias="dropoffContactPhone"
-    )
-    assigned_runner_name: Optional[str] = Field(
-        default=None, alias="assignedRunnerName"
-    )
+    pickup_location: Optional[str] = None
+    pickupLocation: Optional[str] = None
+    dropoff_location: Optional[str] = None
+    dropoffLocation: Optional[str] = None
+    pickup_contact_name: Optional[str] = None
+    pickupContactName: Optional[str] = None
+    pickup_contact_phone: Optional[str] = None
+    pickupContactPhone: Optional[str] = None
+    dropoff_contact_name: Optional[str] = None
+    dropoffContactName: Optional[str] = None
+    dropoff_contact_phone: Optional[str] = None
+    dropoffContactPhone: Optional[str] = None
+    assigned_runner_name: Optional[str] = None
+    assignedRunnerName: Optional[str] = None
     note: Optional[str] = None
     status: str
-    user_id: Union[uuid.UUID, int, str] = Field(..., alias="userId")
-    pilot_id: Optional[Union[uuid.UUID, int, str]] = Field(default=None, alias="pilotId")
-    created_at: Optional[datetime] = Field(default=None, alias="createdAt")
-    updated_at: Optional[datetime] = Field(default=None, alias="updatedAt")
-    started_at: Optional[datetime] = Field(default=None, alias="startedAt")
-    completed_at: Optional[datetime] = Field(default=None, alias="completedAt")
-    pickup_time_slot_date: Optional[str] = Field(
-        default=None, alias="pickupTimeSlotDate"
-    )
-
-    class Config:
-        allow_population_by_field_name = True
+    user_id: Optional[Union[uuid.UUID, int, str]] = None
+    userId: Optional[Union[uuid.UUID, int, str]] = None
+    pilot_id: Optional[Union[uuid.UUID, int, str]] = None
+    pilotId: Optional[Union[uuid.UUID, int, str]] = None
+    created_at: Optional[datetime] = None
+    createdAt: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    updatedAt: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    startedAt: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    completedAt: Optional[datetime] = None
+    pickup_time_slot_date: Optional[str] = None
+    pickupTimeSlotDate: Optional[str] = None
 
 
 # Initialize OpenAI client
@@ -962,6 +990,26 @@ async def _ensure_schema_compatibility() -> None:
                             AND data_type = 'integer'
                         ) THEN
                             ALTER TABLE errands ALTER COLUMN user_id TYPE VARCHAR USING user_id::varchar;
+                        END IF;
+
+                        -- Backfill and cleanly separate phone numbers from names
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name = 'errands' AND column_name = 'pickup_contact_name'
+                        ) THEN
+                            UPDATE errands
+                            SET 
+                                pickup_contact_phone = trim(substring(pickup_contact_name from '\(([\+0-9\s\-]+)\)')),
+                                pickup_contact_name = trim(regexp_replace(pickup_contact_name, '\s*\([\+0-9\s\-]+\)', ''))
+                            WHERE (pickup_contact_phone IS NULL OR pickup_contact_phone = '') 
+                              AND pickup_contact_name ~ '\([\+0-9\s\-]{6,}\)';
+
+                            UPDATE errands
+                            SET 
+                                dropoff_contact_phone = trim(substring(dropoff_contact_name from '\(([\+0-9\s\-]+)\)')),
+                                dropoff_contact_name = trim(regexp_replace(dropoff_contact_name, '\s*\([\+0-9\s\-]+\)', ''))
+                            WHERE (dropoff_contact_phone IS NULL OR dropoff_contact_phone = '') 
+                              AND dropoff_contact_name ~ '\([\+0-9\s\-]{6,}\)';
                         END IF;
                     END $$;
                 """))
@@ -1355,6 +1403,11 @@ def _errand_response(model: Errand, pilot_name: Optional[str] = None) -> ErrandR
     user_id = str(model.user_id) if isinstance(model.user_id, uuid.UUID) else model.user_id
     pilot_id = (str(model.pilot_id) if isinstance(model.pilot_id, uuid.UUID) else model.pilot_id) if model.pilot_id is not None else None
 
+    p_name = getattr(model, "pickup_contact_name", None)
+    p_phone = getattr(model, "pickup_contact_phone", None)
+    d_name = getattr(model, "dropoff_contact_name", None)
+    d_phone = getattr(model, "dropoff_contact_phone", None)
+
     return ErrandResponse(
         id=errand_id,
         reference_number=model.reference_number or _make_reference_number(model.id),
@@ -1362,21 +1415,35 @@ def _errand_response(model: Errand, pilot_name: Optional[str] = None) -> ErrandR
         title=model.title,
         description=model.description,
         pickup_location=model.pickup_location,
+        pickupLocation=model.pickup_location,
         dropoff_location=model.dropoff_location,
-        pickup_contact_name=getattr(model, "pickup_contact_name", None),
-        pickup_contact_phone=getattr(model, "pickup_contact_phone", None),
-        dropoff_contact_name=getattr(model, "dropoff_contact_name", None),
-        dropoff_contact_phone=getattr(model, "dropoff_contact_phone", None),
+        dropoffLocation=model.dropoff_location,
+        pickup_contact_name=p_name,
+        pickupContactName=p_name,
+        pickup_contact_phone=p_phone,
+        pickupContactPhone=p_phone,
+        dropoff_contact_name=d_name,
+        dropoffContactName=d_name,
+        dropoff_contact_phone=d_phone,
+        dropoffContactPhone=d_phone,
         assigned_runner_name=pilot_name,
+        assignedRunnerName=pilot_name,
         note=model.note,
         status=model.status or "pending",
         user_id=user_id,
+        userId=user_id,
         pilot_id=pilot_id,
+        pilotId=pilot_id,
         created_at=model.created_at,
+        createdAt=model.created_at,
         updated_at=model.updated_at,
+        updatedAt=model.updated_at,
         started_at=model.started_at,
+        startedAt=model.started_at,
         completed_at=model.completed_at,
+        completedAt=model.completed_at,
         pickup_time_slot_date=getattr(model, "pickup_time_slot_date", None),
+        pickupTimeSlotDate=getattr(model, "pickup_time_slot_date", None),
     )
 
 
@@ -1465,17 +1532,38 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
                 "custom_v2": "Custom Errand",
             }.get(payload.category or "", "General Errand")
 
+        def _separate_contact(raw_name: Optional[str], raw_phone: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+            name = (raw_name or "").strip()
+            phone = (raw_phone or "").strip()
+            if name:
+                m = re.search(r"[\(\[]([\+0-9\s\-]{6,25})[\)\]]", name)
+                if m:
+                    extracted_phone = re.sub(r"[\s\-]", "", m.group(1).strip())
+                    clean_name = re.sub(r"\s*[\(\[][\+0-9\s\-]{6,25}[\)\]]\s*", " ", name).strip()
+                    if not phone:
+                        phone = extracted_phone
+                    name = clean_name
+            return (name if name else None), (phone if phone else None)
+
+        pickup_raw_name = payload.pickup_contact_name or payload.pickupContactName
+        pickup_raw_phone = payload.pickup_contact_phone or payload.pickupContactPhone
+        dropoff_raw_name = payload.dropoff_contact_name or payload.dropoffContactName
+        dropoff_raw_phone = payload.dropoff_contact_phone or payload.dropoffContactPhone
+
+        pickup_name, pickup_phone = _separate_contact(pickup_raw_name, pickup_raw_phone)
+        dropoff_name, dropoff_phone = _separate_contact(dropoff_raw_name, dropoff_raw_phone)
+
         model = Errand(
             reference_number=placeholder_ref,
             title=clean_title,
             description=payload.description or clean_title,
             pickup_location=pickup_location,
-            dropoff_location=payload.dropoff_location,
-            pickup_contact_name=payload.pickup_contact_name,
-            pickup_contact_phone=payload.pickup_contact_phone,
-            dropoff_contact_name=payload.dropoff_contact_name,
-            dropoff_contact_phone=payload.dropoff_contact_phone,
-            distance_km=payload.distance_km if payload.distance_km is not None else 5.0,
+            dropoff_location=payload.dropoff_location or payload.dropoffLocation,
+            pickup_contact_name=pickup_name,
+            pickup_contact_phone=pickup_phone,
+            dropoff_contact_name=dropoff_name,
+            dropoff_contact_phone=dropoff_phone,
+            distance_km=payload.distance_km if payload.distance_km is not None else (payload.distanceKm if payload.distanceKm is not None else 5.0),
             note=note,
             status="submitted",
             user_id=str(user_id),
@@ -1505,6 +1593,11 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
     created_iso = (
         model.created_at.isoformat() if getattr(model, "created_at", None) else None
     )
+    final_p_name = getattr(model, "pickup_contact_name", None) or pickup_name
+    final_p_phone = getattr(model, "pickup_contact_phone", None) or pickup_phone
+    final_d_name = getattr(model, "dropoff_contact_name", None) or dropoff_name
+    final_d_phone = getattr(model, "dropoff_contact_phone", None) or dropoff_phone
+
     return {
         "id": model.id,
         "reference_number": model.reference_number or _make_reference_number(model.id),
@@ -1515,14 +1608,14 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
         "pickupLocation": model.pickup_location,
         "dropoff_location": model.dropoff_location,
         "dropoffLocation": model.dropoff_location,
-        "pickup_contact_name": getattr(model, "pickup_contact_name", None),
-        "pickupContactName": getattr(model, "pickup_contact_name", None),
-        "pickup_contact_phone": getattr(model, "pickup_contact_phone", None),
-        "pickupContactPhone": getattr(model, "pickup_contact_phone", None),
-        "dropoff_contact_name": getattr(model, "dropoff_contact_name", None),
-        "dropoffContactName": getattr(model, "dropoff_contact_name", None),
-        "dropoff_contact_phone": getattr(model, "dropoff_contact_phone", None),
-        "dropoffContactPhone": getattr(model, "dropoff_contact_phone", None),
+        "pickup_contact_name": final_p_name,
+        "pickupContactName": final_p_name,
+        "pickup_contact_phone": final_p_phone,
+        "pickupContactPhone": final_p_phone,
+        "dropoff_contact_name": final_d_name,
+        "dropoffContactName": final_d_name,
+        "dropoff_contact_phone": final_d_phone,
+        "dropoffContactPhone": final_d_phone,
         "assigned_runner_name": None,
         "assignedRunnerName": None,
         "status": model.status,

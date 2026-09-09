@@ -1,8 +1,10 @@
 from __future__ import annotations
 import logging
 import uuid
+import re
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Optional
 import asyncio
 import time
 import os
@@ -589,6 +591,10 @@ class Errand:
     confirmationSentAt: Optional[uuid.UUID]
     pickupLocation: Optional[str]
     dropoffLocation: Optional[str]
+    pickupContactName: Optional[str] = None
+    pickupContactPhone: Optional[str] = None
+    dropoffContactName: Optional[str] = None
+    dropoffContactPhone: Optional[str] = None
     note: Optional[str]  # Added note field
     status: str
     issueReason: Optional[str]
@@ -634,6 +640,10 @@ class CreateErrandInput:
     sensitivity: Optional[str] = None
     pickupLocation: Optional[str] = None
     dropoffLocation: Optional[str] = None
+    pickupContactName: Optional[str] = None
+    pickupContactPhone: Optional[str] = None
+    dropoffContactName: Optional[str] = None
+    dropoffContactPhone: Optional[str] = None
     note: Optional[str] = None  # Added note field
     pickupTimeSlotStart: Optional[str] = None  # ISO format datetime string
     pickupTimeSlotEnd: Optional[str] = None  # ISO format datetime string
@@ -1011,6 +1021,10 @@ def _to_gql(model: ErrandModel) -> Errand:
         confirmationSentAt=getattr(model, "confirmation_sent_at", None),
         pickupLocation=model.pickup_location,
         dropoffLocation=model.dropoff_location,
+        pickupContactName=getattr(model, "pickup_contact_name", None),
+        pickupContactPhone=getattr(model, "pickup_contact_phone", None),
+        dropoffContactName=getattr(model, "dropoff_contact_name", None),
+        dropoffContactPhone=getattr(model, "dropoff_contact_phone", None),
         note=getattr(model, "note", None),
         status=model.status,
         issueReason=getattr(model, "issue_reason", None),
@@ -1255,6 +1269,22 @@ class Mutation:
                 input.pickupTimeSlotEnd.replace("Z", "+00:00")
             )
 
+        def _separate_contact(raw_name: Optional[str], raw_phone: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+            name = (raw_name or "").strip()
+            phone = (raw_phone or "").strip()
+            if name:
+                m = re.search(r"[\(\[]([\+0-9\s\-]{6,25})[\)\]]", name)
+                if m:
+                    extracted_phone = re.sub(r"[\s\-]", "", m.group(1).strip())
+                    clean_name = re.sub(r"\s*[\(\[][\+0-9\s\-]{6,25}[\)\]]\s*", " ", name).strip()
+                    if not phone:
+                        phone = extracted_phone
+                    name = clean_name
+            return (name if name else None), (phone if phone else None)
+
+        p_name, p_phone = _separate_contact(getattr(input, "pickupContactName", None), getattr(input, "pickupContactPhone", None))
+        d_name, d_phone = _separate_contact(getattr(input, "dropoffContactName", None), getattr(input, "dropoffContactPhone", None))
+
         model = ErrandModel(
             reference_number=placeholder_ref,
             title=input.title,
@@ -1270,6 +1300,10 @@ class Mutation:
             sensitivity=input.sensitivity,
             pickup_location=input.pickupLocation,
             dropoff_location=input.dropoffLocation,
+            pickup_contact_name=p_name,
+            pickup_contact_phone=p_phone,
+            dropoff_contact_name=d_name,
+            dropoff_contact_phone=d_phone,
             note=getattr(input, "note", None),
             pickup_time_slot_start=pickup_time_start,
             pickup_time_slot_end=pickup_time_end,
