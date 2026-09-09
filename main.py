@@ -34,7 +34,7 @@ from models import (
     ClientSubscription,
     StripeCheckoutSession,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from prometheus_fastapi_instrumentator import Instrumentator
 from strawberry.fastapi import GraphQLRouter
 from starlette.requests import Request
@@ -838,8 +838,18 @@ class ErrandCreateRequest(BaseModel):
 
 class ErrandResponse(BaseModel):
     id: Union[uuid.UUID, int, str]
-    reference_number: str = Field(..., alias="referenceNumber")
+    reference_number: Optional[str] = None
+    referenceNumber: Optional[str] = None
     title: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sync_references(cls, data):
+        if isinstance(data, dict):
+            ref = data.get("reference_number") or data.get("referenceNumber")
+            data["reference_number"] = ref
+            data["referenceNumber"] = ref
+        return data
     description: Optional[str] = None
     pickup_location: Optional[str] = Field(default=None, alias="pickupLocation")
     dropoff_location: Optional[str] = Field(default=None, alias="dropoffLocation")
@@ -1347,7 +1357,8 @@ def _errand_response(model: Errand, pilot_name: Optional[str] = None) -> ErrandR
 
     return ErrandResponse(
         id=errand_id,
-        reference_number=model.reference_number,
+        reference_number=model.reference_number or _make_reference_number(model.id),
+        referenceNumber=model.reference_number or _make_reference_number(model.id),
         title=model.title,
         description=model.description,
         pickup_location=model.pickup_location,
@@ -1496,8 +1507,8 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
     )
     return {
         "id": model.id,
-        "reference_number": model.reference_number,
-        "referenceNumber": model.reference_number,
+        "reference_number": model.reference_number or _make_reference_number(model.id),
+        "referenceNumber": model.reference_number or _make_reference_number(model.id),
         "title": model.title,
         "description": model.description,
         "pickup_location": model.pickup_location,
