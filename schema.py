@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -23,6 +24,8 @@ from auth_user_query import (
 from app.services.emailer import send_email
 from app.services.sms_sender import send_sms
 from app.utils.notification_utils import notify_customer_status, notify_pilot_status
+logger = logging.getLogger(__name__)
+
 from models import (
     Errand as ErrandModel,
     User,
@@ -83,6 +86,32 @@ def _normalize_signup_email(value: str) -> str:
     return str(validated.normalized).strip().lower()
 
 
+async def _safe_record_errand_event(
+    session: AsyncSession,
+    errand_id,
+    event_type: str,
+    old_status: str | None = None,
+    new_status: str | None = None,
+    note: str | None = None,
+    user_id: str | None = None,
+) -> None:
+    from models import ErrandEvent
+    try:
+        async with session.begin_nested():
+            event = ErrandEvent(
+                errand_id=errand_id,
+                event_type=event_type,
+                old_status=old_status,
+                new_status=new_status,
+                note=note,
+                user_id=str(user_id) if user_id is not None else None,
+            )
+            session.add(event)
+            await session.flush()
+    except Exception as e:
+        logger.warning("Failed to record errand event (%s): %s", event_type, e)
+
+
 # Strawberry type for errand event history
 @strawberry.type
 class ErrandEventType:
@@ -92,7 +121,7 @@ class ErrandEventType:
     newStatus: str | None
     note: str | None
     createdAt: datetime
-    userId: int | None
+    userId: str | None
 
 
 @strawberry.enum
@@ -117,7 +146,7 @@ class ErrandTimelineEvent:
     newStatus: str | None
     note: str | None
     createdAt: datetime
-    userId: int | None
+    userId: str | None
 
 
 # Strawberry type for errand attachments
@@ -1260,15 +1289,14 @@ class Mutation:
             paid_session_row.used_at = datetime.now(timezone.utc)
 
         # Log event: errand created
-        session.add(
-            ErrandEvent(
-                errand_id=model.id,
-                event_type="created",
-                old_status=None,
-                new_status="submitted",
-                note=None,
-                user_id=str(resolved_user_id),
-            )
+        await _safe_record_errand_event(
+            session=session,
+            errand_id=model.id,
+            event_type="created",
+            old_status=None,
+            new_status="submitted",
+            note=None,
+            user_id=str(resolved_user_id),
         )
 
         await session.commit()
@@ -1334,9 +1362,8 @@ class Mutation:
         model.status = next_status
 
         # Log event: status change
-        from models import ErrandEvent
-
-        event = ErrandEvent(
+        await _safe_record_errand_event(
+            session=session,
             errand_id=model.id,
             event_type="status_change",
             old_status=previous_status,
@@ -1344,7 +1371,6 @@ class Mutation:
             note=None,
             user_id=current_user_id,
         )
-        session.add(event)
 
         # If the errand is completed, automatically send a confirmation email once.
         should_auto_send = (
@@ -1461,9 +1487,8 @@ class Mutation:
                 model.completion_notes = input.completionNotes
 
         # Log event: status change
-        from models import ErrandEvent
-
-        event = ErrandEvent(
+        await _safe_record_errand_event(
+            session=session,
             errand_id=model.id,
             event_type="status_change",
             old_status=previous_status,
@@ -1471,7 +1496,6 @@ class Mutation:
             note="Pilot status update",
             user_id=current_user_id,
         )
-        session.add(event)
 
         await session.commit()
         await session.refresh(model)
@@ -1543,9 +1567,8 @@ class Mutation:
         await session.refresh(model)
 
         # Log event: errand edited
-        from models import ErrandEvent
-
-        event = ErrandEvent(
+        await _safe_record_errand_event(
+            session=session,
             errand_id=model.id,
             event_type="edited",
             old_status=None,
@@ -1553,7 +1576,6 @@ class Mutation:
             note=f"Edited: {', '.join([k for k in ['title', 'description', 'template', 'sensitivity', 'pickup', 'dropoff', 'note'] if getattr(input, k.replace('pickup', 'pickupLocation').replace('dropoff', 'dropoffLocation'), None) is not None])}",
             user_id=current_user_id,
         )
-        session.add(event)
         await session.commit()
 
         return _to_gql(model)
@@ -1771,9 +1793,8 @@ class Mutation:
         errand.status = "assigned"
 
         # Log event
-        from models import ErrandEvent
-
-        event = ErrandEvent(
+        await _safe_record_errand_event(
+            session=session,
             errand_id=errand.id,
             event_type="assigned",
             old_status="submitted",
@@ -1781,7 +1802,6 @@ class Mutation:
             note=f"Assigned to admin user {admin_user.email}",
             user_id=current_user_id,
         )
-        session.add(event)
 
         await session.commit()
         await session.refresh(errand)
@@ -1835,9 +1855,8 @@ class Mutation:
         errand.status = "approved"
 
         # Log event
-        from models import ErrandEvent
-
-        event = ErrandEvent(
+        await _safe_record_errand_event(
+            session=session,
             errand_id=errand.id,
             event_type="approved",
             old_status=old_status,
@@ -1846,7 +1865,6 @@ class Mutation:
             + (f": {notes}" if notes else ""),
             user_id=current_user_id,
         )
-        session.add(event)
 
         await session.commit()
         await session.refresh(errand)
@@ -1889,9 +1907,8 @@ class Mutation:
         errand.review_status = "pending"  # Ready for customer review
 
         # Log event
-        from models import ErrandEvent
-
-        event = ErrandEvent(
+        await _safe_record_errand_event(
+            session=session,
             errand_id=errand.id,
             event_type="completed",
             old_status=previous_status,
@@ -1899,7 +1916,6 @@ class Mutation:
             note=f"Marked as done by {'customer' if is_customer else 'admin'} user {current_user_id}",
             user_id=current_user_id,
         )
-        session.add(event)
 
         await session.commit()
         await session.refresh(errand)
@@ -1951,9 +1967,8 @@ class Mutation:
         old_status = errand.status
         errand.status = "accepted"
 
-        from models import ErrandEvent
-
-        event = ErrandEvent(
+        await _safe_record_errand_event(
+            session=session,
             errand_id=errand.id,
             event_type="accepted",
             old_status=old_status,
@@ -1961,7 +1976,6 @@ class Mutation:
             note=f"Customer confirmed receipt (user_id={current_user_id})",
             user_id=current_user_id,
         )
-        session.add(event)
 
         await session.commit()
         await session.refresh(errand)
@@ -2058,7 +2072,8 @@ class Mutation:
         if reason_clean:
             note_parts.append(f"Reason: {reason_clean}")
 
-        event = ErrandEvent(
+        await _safe_record_errand_event(
+            session=session,
             errand_id=errand.id,
             event_type="customer_cancelled",
             old_status=old_status,
@@ -2066,7 +2081,6 @@ class Mutation:
             note=" | ".join(note_parts),
             user_id=current_user_id,
         )
-        session.add(event)
 
         await session.commit()
         await session.refresh(errand)
@@ -2131,9 +2145,8 @@ class Mutation:
         errand.review_completed_at = datetime.now()
 
         # Log event
-        from models import ErrandEvent
-
-        event = ErrandEvent(
+        await _safe_record_errand_event(
+            session=session,
             errand_id=errand.id,
             event_type="reviewed",
             old_status=None,
@@ -2141,7 +2154,6 @@ class Mutation:
             note=f"Customer review: {rating} stars",
             user_id=current_user_id,
         )
-        session.add(event)
 
         await session.commit()
         await session.refresh(errand)

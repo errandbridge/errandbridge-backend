@@ -908,6 +908,58 @@ def _derive_draft(prompt: str, template_id: Optional[str]) -> SuggestResponse:
     return SuggestResponse(title=title_raw, description=description)
 
 
+async def _ensure_schema_compatibility() -> None:
+    """Ensure columns with historical type mismatches are safely converted to VARCHAR."""
+    try:
+        from database import engine
+        from sqlalchemy import text
+        async with engine.begin() as conn:
+            if conn.dialect.name == "postgresql":
+                await conn.execute(text("""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name = 'errand_events' 
+                            AND column_name = 'user_id' 
+                            AND data_type = 'integer'
+                        ) THEN
+                            ALTER TABLE errand_events ALTER COLUMN user_id TYPE VARCHAR USING user_id::varchar;
+                        END IF;
+
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name = 'client_subscriptions' 
+                            AND column_name = 'user_id' 
+                            AND data_type = 'integer'
+                        ) THEN
+                            ALTER TABLE client_subscriptions ALTER COLUMN user_id TYPE VARCHAR USING user_id::varchar;
+                        END IF;
+
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name = 'stripe_checkout_sessions' 
+                            AND column_name = 'user_id' 
+                            AND data_type = 'integer'
+                        ) THEN
+                            ALTER TABLE stripe_checkout_sessions ALTER COLUMN user_id TYPE VARCHAR USING user_id::varchar;
+                        END IF;
+
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name = 'errands' 
+                            AND column_name = 'user_id' 
+                            AND data_type = 'integer'
+                        ) THEN
+                            ALTER TABLE errands ALTER COLUMN user_id TYPE VARCHAR USING user_id::varchar;
+                        END IF;
+                    END $$;
+                """))
+                print("[STARTUP] 🩹 Schema compatibility verified (user_id columns -> VARCHAR)", flush=True)
+    except Exception as e:
+        print(f"[STARTUP] ⚠️ Schema compatibility check skipped or failed: {e}", flush=True)
+
+
 async def _startup_event() -> None:
     """Startup event handler with idempotent database initialization."""
     global _db_init_done
@@ -915,6 +967,7 @@ async def _startup_event() -> None:
     running_in_aws = bool(os.getenv("AWS_EXECUTION_ENV"))
 
     print("[STARTUP] ✨ Startup event handler called!", flush=True)
+    await _ensure_schema_compatibility()
 
     # Never use create_all in AWS/non-local environments.
     # create_all does not apply schema migrations (it won't add columns like tip_amount_total_minor).
