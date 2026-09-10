@@ -38,7 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from prometheus_fastapi_instrumentator import Instrumentator
 from strawberry.fastapi import GraphQLRouter
 from starlette.requests import Request
-from sqlalchemy import select, update, text
+from sqlalchemy import select, update, text, cast, String
 from app.routes.dashboard import router as dashboard_router
 from app.routes.pilot_delivery import router as pilot_delivery_router
 from app.routes.pilot_profile import router as pilot_profile_router
@@ -1720,6 +1720,9 @@ class ErrandStatusUpdateIn(BaseModel):
 
 
 @app.put("/errands/{errand_id}/status", response_model=ErrandResponse)
+@app.put("/api/v1/errands/{errand_id}/status", response_model=ErrandResponse)
+@app.patch("/errands/{errand_id}/status", response_model=ErrandResponse)
+@app.patch("/api/v1/errands/{errand_id}/status", response_model=ErrandResponse)
 async def update_errand_status(
     errand_id: Union[uuid.UUID, int, str], payload: ErrandStatusUpdateIn, request: Request
 ):
@@ -1732,16 +1735,105 @@ async def update_errand_status(
         if not model:
             raise HTTPException(status_code=404, detail="Errand not found")
 
-        if str(model.user_id) != str(user_id) and (
-            model.pilot_id is None or str(model.pilot_id) != str(user_id)
-        ):
-            raise HTTPException(status_code=403, detail="Not allowed to update status")
+        is_client = str(model.user_id) == str(user_id)
+        is_assigned_pilot = model.pilot_id is not None and str(model.pilot_id) == str(user_id)
 
+        if not is_client and not is_assigned_pilot:
+            user_res = await session.execute(select(User).where(cast(User.id, String) == str(user_id)))
+            current_user = user_res.scalar_one_or_none()
+            if current_user and getattr(current_user, "role", None) == "pilot":
+                if model.pilot_id is None or str(model.pilot_id).strip() == "":
+                    model.pilot_id = str(user_id)
+                    model.assigned_to = str(user_id)
+                elif str(model.pilot_id) != str(user_id):
+                    raise HTTPException(status_code=403, detail="Not allowed to update status")
+            else:
+                raise HTTPException(status_code=403, detail="Not allowed to update status")
+
+        previous_status = model.status
         model.status = payload.status
+
+        # If entering delivery/pickup active states, ensure started_at is set for live tracking
+        if payload.status in ["in_progress", "pickup_started", "picked_up"]:
+            if not model.started_at:
+                model.started_at = datetime.now(timezone.utc)
+            model.tracking_paused = False
+
+        # If entering completion states, set completed_at and calculate delivery time
+        if payload.status in ["delivered", "completed"]:
+            if not model.completed_at:
+                model.completed_at = datetime.now(timezone.utc)
+            if model.started_at:
+                model.delivery_time = (model.completed_at - model.started_at).total_seconds()
+            model.tracking_paused = False
+
+        if payload.imageProofUrl:
+            model.photo_url = payload.imageProofUrl
+
+        event_type_map = {
+            "pickup_started": "pilot_started",
+            "in_progress": "pilot_started",
+            "picked_up": "pilot_picked_up",
+            "arrived_at_pickup": "pilot_arrived_pickup",
+            "arrived_at_dropoff": "pilot_arrived_dropoff",
+            "delivered": "pilot_completed",
+            "completed": "pilot_completed",
+            "cancelled": "client_cancelled" if str(model.user_id) == str(user_id) else "pilot_cancelled",
+        }
+        event_type = event_type_map.get(payload.status, f"status_{payload.status}")
+
+        session.add(
+            ErrandEvent(
+                errand_id=model.id,
+                event_type=event_type,
+                old_status=previous_status,
+                new_status=model.status,
+                note=f"Status updated to {model.status}",
+                user_id=str(user_id),
+            )
+        )
 
         session.add(model)
         await session.commit()
         await session.refresh(model)
+
+        # Broadcast real-time status update to all connected tracking WebSockets
+        try:
+            from app.routes.tracking import manager as tracking_ws_manager
+            await tracking_ws_manager.broadcast(
+                str(model.id),
+                {
+                    "type": "status_update",
+                    "errand_id": str(model.id),
+                    "status": model.status,
+                    "old_status": previous_status,
+                    "tracking_active": model.status in {"in_progress", "picked_up", "delivered"},
+                    "photo_url": model.photo_url,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except Exception as ws_err:
+            print(f"[tracking] broadcast errand status update failed: {ws_err}", flush=True)
+
+        # Send notifications safely
+        try:
+            from app.utils.notification_utils import notify_customer_status, notify_pilot_status
+            await notify_customer_status(
+                session,
+                errand=model,
+                old_status=previous_status,
+                new_status=model.status,
+                trigger="status-update",
+            )
+            if model.pilot_id:
+                await notify_pilot_status(
+                    session,
+                    errand=model,
+                    new_status=model.status,
+                    trigger="status-update",
+                )
+        except Exception as notify_err:
+            print(f"[notify] status update notification failed: {notify_err}", flush=True)
 
     return _errand_response(model)
 
@@ -2156,11 +2248,11 @@ async def create_attachment_share_link(
             raise HTTPException(status_code=404, detail="Errand not found")
 
         user = await session.get(
-            User, int(user_id), options=AUTH_SAFE_USER_LOAD_OPTIONS
+            User, user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS
         )
         user_email = user.email if user else None
 
-        is_owner = int(errand.user_id) == int(user_id)
+        is_owner = str(errand.user_id) == str(user_id)
         is_admin = _is_admin_email(user_email)
         if not (is_owner or is_admin):
             raise HTTPException(status_code=403, detail="Not allowed")
