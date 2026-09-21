@@ -89,7 +89,7 @@ def _tracking_window_info(errand: Errand) -> dict:
     }
 
 
-def _tracking_status_payload(errand: Errand) -> dict:
+def _tracking_status_payload(errand: Errand, pilot: Optional[User] = None) -> dict:
     window_info = _tracking_window_info(errand)
     started_at = window_info["started_at"]
     within_window = window_info["within_window"]
@@ -104,9 +104,20 @@ def _tracking_status_payload(errand: Errand) -> dict:
     elif not tracking_active:
         reason = "Tracking is not active for this errand status."
 
+    p_name = None
+    p_first_name = None
+    if pilot:
+        p_first_name = (pilot.first_name or "").strip() or None
+        p_name = f"{pilot.first_name or ''} {pilot.last_name or ''}".strip() or None
+        if not p_first_name and p_name:
+            p_first_name = p_name.split()[0]
+
     return {
         "errand_id": errand.id,
         "status": errand.status,
+        "pilot_id": str(errand.pilot_id) if getattr(errand, 'pilot_id', None) else None,
+        "pilot_name": p_name,
+        "pilot_first_name": p_first_name,
         "tracking_allowed": tracking_allowed,
         "tracking_active": tracking_active,
         "within_time_window": within_window,
@@ -196,7 +207,7 @@ async def _require_assigned_pilot(
             detail="Pilot access required",
         )
 
-    if not errand.pilot_id or int(errand.pilot_id) != int(user.id):
+    if not errand.pilot_id or str(errand.pilot_id) != str(user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not assigned to this errand",
@@ -230,9 +241,9 @@ async def _require_errand_owner(
 
     admin_set = admin_emails()
     is_admin = user.email.lower() in admin_set if user.email else False
-    is_pilot = errand.pilot_id and int(errand.pilot_id) == int(user.id)
+    is_pilot = bool(errand.pilot_id) and str(errand.pilot_id) == str(user.id)
 
-    if int(errand.user_id) != int(user.id) and not is_admin and not is_pilot:
+    if str(errand.user_id) != str(user.id) and not is_admin and not is_pilot:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the errand owner, assigned pilot, or admin can track this delivery",
@@ -575,7 +586,11 @@ async def get_tracking_status(
 
     await _require_errand_owner(authorization, errand, db)
 
-    return _tracking_status_payload(errand)
+    pilot = None
+    if getattr(errand, "pilot_id", None):
+        pilot = await db.scalar(select(User).where(User.id == errand.pilot_id))
+
+    return _tracking_status_payload(errand, pilot=pilot)
 
 
 @router.get("/current/{errand_id}", response_model=LocationResponse, operation_id="getCurrentLocation", summary="Get latest pilot location", description="Retrieve the most recent GPS location update for an active errand.")
@@ -784,8 +799,8 @@ async def websocket_endpoint(websocket: WebSocket, errand_id: str):
                 else:
                     admin_set = admin_emails()
                     is_admin = user.email.lower() in admin_set if user.email else False
-                    is_pilot = errand.pilot_id and int(errand.pilot_id) == int(user.id)
-                    is_owner = int(errand.user_id) == int(user.id)
+                    is_pilot = bool(errand.pilot_id) and str(errand.pilot_id) == str(user.id)
+                    is_owner = str(errand.user_id) == str(user.id)
                     if not (is_admin or is_owner or is_pilot):
                         errand = None
 
@@ -800,20 +815,20 @@ async def websocket_endpoint(websocket: WebSocket, errand_id: str):
         await websocket.close(code=1008)
         return
 
-    payload = _tracking_status_payload(errand)
-    if not payload["tracking_allowed"] or errand.status not in ACTIVE_TRACKING_STATUSES:
-        await websocket.accept()
-        await websocket.send_json(
-            {
-                "type": "tracking_unavailable",
-                "reason": payload["reason"]
-                or "Tracking is not active for this errand.",
-            }
-        )
-        await websocket.close(code=1008)
-        return
-
     await manager.connect(errand_id, websocket)
+
+    payload = _tracking_status_payload(errand)
+    is_active = bool(payload["tracking_allowed"]) and errand.status in ACTIVE_TRACKING_STATUSES
+    await websocket.send_json(
+        {
+            "type": "tracking_status",
+            "errand_id": str(errand.id),
+            "status": errand.status,
+            "tracking_active": is_active,
+            "tracking_allowed": bool(payload["tracking_allowed"]),
+            "reason": payload["reason"] if not is_active else None,
+        }
+    )
 
     try:
         while True:

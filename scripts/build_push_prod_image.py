@@ -33,7 +33,7 @@ def _run(cmd: list[str]) -> None:
 
 
 def _default_tag() -> str:
-    return f"prod-{dt.datetime.now(dt.UTC).strftime('%Y%m%d-%H%M%S')}"
+    return f"prod-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
 
 def main() -> int:

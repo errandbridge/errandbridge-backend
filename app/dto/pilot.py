@@ -93,10 +93,14 @@ class PilotJobActionResponse(BaseModel):
     """Standard response when accepting or declining a job."""
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
-    status: str = Field(..., description="Action status result (e.g. accepted, declined)")
-    errand_id: FlexibleId = Field(..., description="Target errand ID")
+    ok: Optional[bool] = Field(default=True, description="Whether operation succeeded")
+    success: Optional[bool] = Field(default=True, description="Whether operation succeeded")
+    status: Optional[str] = Field(default="accepted", description="Action status result (e.g. accepted, declined)")
+    errand_id: Optional[FlexibleId] = Field(default=None, description="Target errand ID")
     pilot_id: Optional[FlexibleId] = Field(default=None, description="Acting pilot ID")
-    message: str = Field(..., description="Action result message")
+    message: Optional[str] = Field(default="Operation completed", description="Action result message")
+    already_active: Optional[bool] = Field(default=None, description="Whether errand was already active")
+    errand: Optional[dict[str, Any]] = Field(default=None, description="Errand details payload")
 
 
 class StartDeliveryResponse(BaseModel):

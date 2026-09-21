@@ -19,3 +19,6 @@ class TrackingStatusResponse(BaseModel):
     window_start: Optional[str] = Field(default=None, description="Scheduled start time window")
     window_end: Optional[str] = Field(default=None, description="Scheduled end time window")
     reason: Optional[str] = Field(default=None, description="Explanation when tracking is unavailable")
+    pilot_id: Optional[FlexibleId] = Field(default=None, description="Assigned pilot identifier")
+    pilot_name: Optional[str] = Field(default=None, description="Assigned pilot full display name")
+    pilot_first_name: Optional[str] = Field(default=None, description="Assigned pilot first name")

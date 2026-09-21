@@ -99,6 +99,31 @@ def _admin_recipients() -> list[str]:
     return sorted(admin_emails())
 
 
+
+async def _safe_get_user(session, user_id: object) -> Optional[User]:
+    if not user_id:
+        return None
+    if isinstance(user_id, User):
+        return user_id
+    try:
+        user = await session.get(User, user_id)
+        if user:
+            return user
+    except Exception:
+        pass
+    if isinstance(user_id, str):
+        try:
+            parsed = uuid.UUID(user_id.strip())
+            return await session.get(User, parsed)
+        except Exception:
+            pass
+    if isinstance(user_id, int):
+        try:
+            return await session.get(User, str(user_id))
+        except Exception:
+            pass
+    return None
+
 async def notify_customer_status(
     session,
     *,
@@ -108,7 +133,7 @@ async def notify_customer_status(
     trigger: str,
     message: Optional[str] = None,
 ) -> None:
-    user = await session.get(User, int(errand.user_id))
+    user = await _safe_get_user(session, errand.user_id)
     if not user or not user.email:
         return
 
@@ -145,7 +170,7 @@ async def notify_pilot_status(
 ) -> None:
     pilot = pilot_user
     if not pilot and errand.pilot_id:
-        pilot = await session.get(User, int(errand.pilot_id))
+        pilot = await _safe_get_user(session, errand.pilot_id)
     if not pilot or not pilot.email:
         return
 
@@ -190,7 +215,7 @@ async def notify_pilot_tip(
     # Resolve pilot
     pilot = pilot_user or errandsafe_pilot_user
     if not pilot and getattr(errand, "pilot_id", None):
-        pilot = await session.get(User, int(errand.pilot_id))
+        pilot = await _safe_get_user(session, errand.pilot_id)
     if not pilot or (not pilot.email and not pilot.phone):
         return
 
@@ -225,7 +250,7 @@ async def notify_pilot_job_reminder(
 ) -> None:
     pilot = pilot_user
     if not pilot and errand.pilot_id:
-        pilot = await session.get(User, int(errand.pilot_id))
+        pilot = await _safe_get_user(session, errand.pilot_id)
     if not pilot or not pilot.email:
         return
 
@@ -326,7 +351,7 @@ async def notify_tracking_started(
     errand: Errand,
     trigger: str,
 ) -> None:
-    user = await session.get(User, int(errand.user_id))
+    user = await _safe_get_user(session, errand.user_id)
     tracking_url = _tracking_link(errand)
 
     if user and user.email:
@@ -393,7 +418,7 @@ async def notify_delay_detected(
         include_tracking=True,
     )
 
-    pilot = await session.get(User, int(errand.pilot_id)) if errand.pilot_id else None
+    pilot = await _safe_get_user(session, errand.pilot_id) if errand.pilot_id else None
     if pilot and pilot.email:
         subject = "ErrandBridge check-in: Are you delayed?"
         body = (
@@ -456,7 +481,7 @@ async def notify_customer_incident_update(
     errand: Errand,
     message: str,
 ) -> None:
-    user = await session.get(User, int(errand.user_id))
+    user = await _safe_get_user(session, errand.user_id)
     if not user or not user.email:
         return
 

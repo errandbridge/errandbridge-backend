@@ -1102,7 +1102,7 @@ async def list_attachments(
             AdminAttachmentOut(
                 id=attachment.id,
                 errand_id=attachment.errand_id,
-                user_id=int(errand.user_id),
+                user_id=errand.user_id,
                 reference_number=getattr(errand, "reference_number", None),
                 errand_title=getattr(errand, "title", None),
                 owner_name=owner_name or getattr(owner, "email", None),
@@ -1193,7 +1193,7 @@ async def review_attachment(
     if attachment.review_status == "approved":
         try:
             errand = await db.get(Errand, attachment.errand_id)
-            owner_user = await db.get(User, int(errand.user_id)) if errand else None
+            owner_user = await db.get(User, errand.user_id) if errand else None
             if owner_user and owner_user.email:
                 share_token = secrets.token_urlsafe(24)
                 pin = secrets.token_urlsafe(4)
@@ -1203,7 +1203,7 @@ async def review_attachment(
                 expires_at = datetime.utcnow() + timedelta(hours=72)
 
                 link = AttachmentShareLink(
-                    attachment_id=int(attachment.id),
+                    attachment_id=str(attachment.id),
                     token_hash=token_hash,
                     pin_hash=pin_hash,
                     expires_at=expires_at,
@@ -1272,10 +1272,14 @@ async def update_errand_status(
     valid_statuses = [
         "pending",
         "assigned",
+        "accepted",
+        "in_progress",
+        "pickup_started",
         "picked_up",
+        "arrived_at_pickup",
+        "arrived_at_dropoff",
         "delivered",
         "completed",
-        "accepted",
         "cancelled",
     ]
 
@@ -1303,6 +1307,22 @@ async def update_errand_status(
 
     await db.commit()
     await db.refresh(errand)
+
+    try:
+        from app.routes.tracking import manager as tracking_ws_manager
+        await tracking_ws_manager.broadcast(
+            str(errand.id),
+            {
+                "type": "status_update",
+                "errand_id": str(errand.id),
+                "status": errand.status,
+                "old_status": old_status,
+                "tracking_active": errand.status in {"in_progress", "picked_up", "delivered"},
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+    except Exception as ws_err:
+        print(f"[tracking] admin status broadcast failed: {ws_err}")
 
     try:
         await notify_customer_status(
@@ -1690,7 +1710,7 @@ async def admin_download_attachment(
         raise HTTPException(status_code=404, detail="Attachment not found")
 
     errand = await db.get(Errand, attachment.errand_id)
-    owner_user_id = int(errand.user_id) if errand else None
+    owner_user_id = str(errand.user_id) if errand else None
 
     print(
         f"[admin] user_id={admin.id} action=download_attachment attachment_id={attachment_id} errand_id={attachment.errand_id} owner_user_id={owner_user_id}"

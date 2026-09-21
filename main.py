@@ -869,6 +869,10 @@ class ErrandResponse(BaseModel):
                 ("dropoff_contact_name", "dropoffContactName"),
                 ("dropoff_contact_phone", "dropoffContactPhone"),
                 ("assigned_runner_name", "assignedRunnerName"),
+                ("pilot_name", "pilotName"),
+                ("pilot_first_name", "pilotFirstName"),
+                ("pilot_rating", "pilotRating"),
+                ("pilot_errands_count", "pilotErrandsCount"),
                 ("user_id", "userId"),
                 ("pilot_id", "pilotId"),
                 ("created_at", "createdAt"),
@@ -897,6 +901,14 @@ class ErrandResponse(BaseModel):
     dropoffContactPhone: Optional[str] = None
     assigned_runner_name: Optional[str] = None
     assignedRunnerName: Optional[str] = None
+    pilot_name: Optional[str] = None
+    pilotName: Optional[str] = None
+    pilot_first_name: Optional[str] = None
+    pilotFirstName: Optional[str] = None
+    pilot_rating: Optional[float] = None
+    pilotRating: Optional[float] = None
+    pilot_errands_count: Optional[str] = None
+    pilotErrandsCount: Optional[str] = None
     note: Optional[str] = None
     status: str
     user_id: Optional[Union[uuid.UUID, int, str]] = None
@@ -1442,7 +1454,13 @@ async def _ensure_errands_schema_compatible():
         print(f"[SCHEMA] Migration note: {e}", flush=True)
 
 
-def _errand_response(model: Errand, pilot_name: Optional[str] = None) -> ErrandResponse:
+def _errand_response(
+    model: Errand, 
+    pilot_name: Optional[str] = None,
+    pilot_first_name: Optional[str] = None,
+    pilot_rating: Optional[float] = None,
+    pilot_errands_count: Optional[str] = None
+) -> ErrandResponse:
     errand_id = str(model.id) if isinstance(model.id, uuid.UUID) else model.id
     user_id = str(model.user_id) if isinstance(model.user_id, uuid.UUID) else model.user_id
     pilot_id = (str(model.pilot_id) if isinstance(model.pilot_id, uuid.UUID) else model.pilot_id) if model.pilot_id is not None else None
@@ -1472,6 +1490,14 @@ def _errand_response(model: Errand, pilot_name: Optional[str] = None) -> ErrandR
         dropoffContactPhone=d_phone,
         assigned_runner_name=pilot_name,
         assignedRunnerName=pilot_name,
+        pilot_name=pilot_name,
+        pilotName=pilot_name,
+        pilot_first_name=pilot_first_name,
+        pilotFirstName=pilot_first_name,
+        pilot_rating=pilot_rating,
+        pilotRating=pilot_rating,
+        pilot_errands_count=pilot_errands_count,
+        pilotErrandsCount=pilot_errands_count,
         note=model.note,
         status=model.status or "pending",
         user_id=user_id,
@@ -1699,7 +1725,8 @@ async def list_errands(
         from sqlalchemy import cast, String
         async with AsyncSessionLocal() as session:
             stmt = (
-                select(Errand)
+                select(Errand, User)
+                .outerjoin(User, cast(Errand.pilot_id, String) == cast(User.id, String))
                 .where(cast(Errand.user_id, String) == str(user_id))
             )
             if status_filter:
@@ -1707,8 +1734,31 @@ async def list_errands(
             stmt = stmt.order_by(Errand.created_at.desc()).offset(offset).limit(limit)
 
             result = await session.execute(stmt)
-            errands = result.scalars().all()
-            return [_errand_response(m) for m in errands]
+            rows = result.all()
+            
+            errand_responses = []
+            for errand_obj, pilot_obj in rows:
+                p_name = None
+                p_first_name = None
+                p_rating = None
+                if pilot_obj:
+                    p_first_name = (pilot_obj.first_name or "").strip() or None
+                    p_name = f"{pilot_obj.first_name or ''} {pilot_obj.last_name or ''}".strip()
+                    if not p_name:
+                        p_name = "Assigned Pilot"
+                    if not p_first_name and p_name != "Assigned Pilot":
+                        p_first_name = p_name.split()[0]
+                    p_rating = pilot_obj.rating
+                errand_responses.append(
+                    _errand_response(
+                        errand_obj,
+                        pilot_name=p_name,
+                        pilot_first_name=p_first_name,
+                        pilot_rating=p_rating,
+                    )
+                )
+                
+            return errand_responses
     except Exception as e:
         print(f"[ERRANDS] list_errands error: {e}", flush=True)
         return []
@@ -1845,14 +1895,34 @@ async def get_errand(errand_id: Union[uuid.UUID, int, str], request: Request):
 
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            select(Errand).where(cast(Errand.id, String) == str(errand_id), cast(Errand.user_id, String) == str(user_id))
+            select(Errand, User)
+            .outerjoin(User, cast(Errand.pilot_id, String) == cast(User.id, String))
+            .where(cast(Errand.id, String) == str(errand_id), cast(Errand.user_id, String) == str(user_id))
         )
-        model = result.scalar_one_or_none()
+        row = result.first()
 
-    if not model:
+    if not row:
         raise HTTPException(status_code=404, detail="Errand not found")
+        
+    model, pilot_obj = row
+    p_name = None
+    p_first_name = None
+    p_rating = None
+    if pilot_obj:
+        p_first_name = (pilot_obj.first_name or "").strip() or None
+        p_name = f"{pilot_obj.first_name or ''} {pilot_obj.last_name or ''}".strip()
+        if not p_name:
+            p_name = "Assigned Pilot"
+        if not p_first_name and p_name != "Assigned Pilot":
+            p_first_name = p_name.split()[0]
+        p_rating = pilot_obj.rating
 
-    return _errand_response(model)
+    return _errand_response(
+        model,
+        pilot_name=p_name,
+        pilot_first_name=p_first_name,
+        pilot_rating=p_rating,
+    )
 
 
 @app.post("/errands/{errand_id}/attachments", response_model=ErrandAttachmentItem, operation_id="uploadErrandAttachment", summary="Upload errand attachment", description="Upload image or PDF document attachment for an errand.")

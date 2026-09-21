@@ -100,7 +100,7 @@ async def _get_current_user(
     if not user_id:
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
-    user = await db.get(User, int(user_id))
+    user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
@@ -125,8 +125,8 @@ async def _require_participant(
     if await _is_admin(db, user):
         return errand
 
-    is_owner = int(errand.user_id) == int(user.id)
-    is_pilot = bool(errand.pilot_id) and int(errand.pilot_id) == int(user.id)
+    is_owner = str(errand.user_id) == str(user.id)
+    is_pilot = bool(errand.pilot_id) and str(errand.pilot_id) == str(user.id)
 
     if not (is_owner or is_pilot):
         raise HTTPException(status_code=403, detail="Not allowed")
@@ -243,7 +243,7 @@ async def send_errand_message(
 
     sender_type = (
         "pilot"
-        if errand.pilot_id and int(user.id) == int(errand.pilot_id)
+        if errand.pilot_id and str(user.id) == str(errand.pilot_id)
         else "customer"
     )
     sender_name = (
@@ -255,7 +255,7 @@ async def send_errand_message(
     return ErrandMessageOut(
         id=int(msg.id),
         message=msg.message,
-        sender_id=int(user.id),
+        sender_id=str(user.id),
         sender_type=sender_type,
         sender_name=sender_name,
         mine=True,

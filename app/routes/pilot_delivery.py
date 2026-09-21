@@ -48,6 +48,7 @@ from app.dto import (
     PilotDocumentsListResponse,
     AttachmentItem,
 )
+from app.routes.tracking import manager as tracking_ws_manager
 from auth import decode_access_token
 from models import (
     Errand,
@@ -616,7 +617,7 @@ async def accept_job(
 
     # Prevent pilots from accepting errands that are assigned to another pilot.
     # Unassigned errands are claimable (see /available-jobs behavior).
-    if errand.pilot_id is not None and str(errand.pilot_id) != _pilot_id_val(pilot.id):
+    if errand.pilot_id is not None and str(errand.pilot_id) != str(_pilot_id_val(pilot.id)):
         try:
             await notify_admin_status(
                 db,
@@ -633,12 +634,22 @@ async def accept_job(
             detail="Errand is assigned to another pilot",
         )
 
-    if errand.pilot_id is not None and str(errand.pilot_id) == _pilot_id_val(pilot.id):
+    if errand.pilot_id is not None and str(errand.pilot_id) == str(_pilot_id_val(pilot.id)):
         normalized_status = _normalize_status(errand.status)
         if normalized_status in ["accepted", "picked_up", "in_progress", "delivered"]:
-            customer = await db.get(User, errand.user_id)
+            customer = None
+            try:
+                if getattr(errand, "user_id", None):
+                    customer = await db.get(User, errand.user_id)
+            except Exception as e:
+                logger.warning(f"[accept_job] customer lookup failed: {e}")
             return {
                 "ok": True,
+                "success": True,
+                "status": errand.status or "accepted",
+                "errand_id": str(errand.id),
+                "pilot_id": str(pilot.id) if hasattr(pilot, "id") else str(errand.pilot_id),
+                "message": "Errand is already active",
                 "already_active": True,
                 "errand": {
                     "id": errand.id,
@@ -723,7 +734,27 @@ async def accept_job(
     await db.commit()
     await db.refresh(errand)
 
-    customer = await db.get(User, errand.user_id)
+    try:
+        await tracking_ws_manager.broadcast(
+            str(errand.id),
+            {
+                "type": "status_update",
+                "errand_id": str(errand.id),
+                "status": errand.status,
+                "old_status": previous_status,
+                "pilot_id": str(pilot.id),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+    except Exception as broadcast_err:
+        logger.warning(f"[tracking] broadcast accept_job failed: {broadcast_err}")
+
+    customer = None
+    try:
+        if getattr(errand, "user_id", None):
+            customer = await db.get(User, errand.user_id)
+    except Exception as e:
+        logger.warning(f"[accept_job] customer lookup failed: {e}")
 
     try:
         await notify_customer_status(
@@ -757,6 +788,11 @@ async def accept_job(
 
     return {
         "ok": True,
+        "success": True,
+        "status": errand.status or "accepted",
+        "errand_id": str(errand.id),
+        "pilot_id": str(pilot.id) if hasattr(pilot, "id") else str(errand.pilot_id),
+        "message": "Errand accepted successfully",
         "errand": {
             "id": errand.id,
             "status": errand.status,
@@ -794,7 +830,7 @@ async def assign_job_legacy(
             status_code=status.HTTP_400_BAD_REQUEST, detail="errand_id is required"
         )
     return await accept_job(
-        errand_id=int(errand_id), authorization=authorization, db=db
+        errand_id=str(errand_id), authorization=authorization, db=db
     )
 
 
@@ -925,6 +961,11 @@ async def decline_job(
 
     return {
         "ok": True,
+        "success": True,
+        "status": errand.status or "submitted",
+        "errand_id": str(errand.id),
+        "pilot_id": str(pilot.id) if hasattr(pilot, "id") else None,
+        "message": "Errand declined successfully",
         "errand": {
             "id": errand.id,
             "status": errand.status,
@@ -1238,7 +1279,7 @@ async def start_delivery(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
             )
 
-        if errand.pilot_id and int(errand.pilot_id) != int(pilot_user.id):
+        if errand.pilot_id and str(errand.pilot_id) != str(pilot_user.id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not assigned to this errand",
@@ -1267,7 +1308,7 @@ async def start_delivery(
                 detail=f"Cannot start delivery - current status is {errand.status}",
             )
 
-        if pilot_id and errand.pilot_id and int(errand.pilot_id) != int(pilot_id):
+        if pilot_id and errand.pilot_id and str(errand.pilot_id) != str(pilot_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not assigned to this errand",
@@ -1300,6 +1341,22 @@ async def start_delivery(
 
         await db.commit()
         await db.refresh(errand)
+
+        try:
+            await tracking_ws_manager.broadcast(
+                str(errand.id),
+                {
+                    "type": "status_update",
+                    "errand_id": str(errand.id),
+                    "status": errand.status,
+                    "old_status": previous_status,
+                    "tracking_active": True,
+                    "tracking_enabled": True,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except Exception as broadcast_err:
+            logger.warning(f"[tracking] broadcast start_delivery failed: {broadcast_err}")
 
         # Notifications can be slow (email/SMS). Do not block pilot UX on them.
         async def _send_start_notifications() -> None:
@@ -1493,7 +1550,7 @@ async def complete_delivery(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
             )
 
-        if errand.pilot_id and int(errand.pilot_id) != int(pilot_user.id):
+        if errand.pilot_id and str(errand.pilot_id) != str(pilot_user.id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not assigned to this errand",
@@ -1549,6 +1606,23 @@ async def complete_delivery(
 
         await db.commit()
         await db.refresh(errand)
+
+        try:
+            await tracking_ws_manager.broadcast(
+                str(errand.id),
+                {
+                    "type": "status_update",
+                    "errand_id": str(errand.id),
+                    "status": errand.status,
+                    "old_status": previous_status,
+                    "tracking_active": False,
+                    "photo_url": errand.photo_url,
+                    "signature_url": errand.signature_url,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except Exception as broadcast_err:
+            logger.warning(f"[tracking] broadcast complete_delivery failed: {broadcast_err}")
 
         try:
             await notify_customer_status(
@@ -1629,7 +1703,7 @@ async def pause_tracking(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
             )
 
-        if errand.pilot_id and int(errand.pilot_id) != int(pilot_user.id):
+        if errand.pilot_id and str(errand.pilot_id) != str(pilot_user.id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not assigned to this errand",
@@ -1644,6 +1718,21 @@ async def pause_tracking(
         # Set tracking pause flag
         errand.tracking_paused = True
         await db.commit()
+
+        try:
+            await tracking_ws_manager.broadcast(
+                str(errand.id),
+                {
+                    "type": "status_update",
+                    "errand_id": str(errand.id),
+                    "status": errand.status,
+                    "tracking_paused": True,
+                    "tracking_active": False,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except Exception as broadcast_err:
+            logger.warning(f"[tracking] broadcast pause_tracking failed: {broadcast_err}")
 
         try:
             await notify_customer_status(
@@ -1698,7 +1787,7 @@ async def resume_tracking(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Errand not found"
             )
 
-        if errand.pilot_id and int(errand.pilot_id) != int(pilot_user.id):
+        if errand.pilot_id and str(errand.pilot_id) != str(pilot_user.id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not assigned to this errand",
@@ -1712,6 +1801,21 @@ async def resume_tracking(
 
         errand.tracking_paused = False
         await db.commit()
+
+        try:
+            await tracking_ws_manager.broadcast(
+                str(errand.id),
+                {
+                    "type": "status_update",
+                    "errand_id": str(errand.id),
+                    "status": errand.status,
+                    "tracking_paused": False,
+                    "tracking_active": True,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except Exception as broadcast_err:
+            logger.warning(f"[tracking] broadcast resume_tracking failed: {broadcast_err}")
 
         try:
             await notify_customer_status(
@@ -1871,7 +1975,7 @@ async def assign_job(
                 detail="Errand must be assigned by an admin before acceptance",
             )
 
-        if int(errand.pilot_id) != int(pilot_id):
+        if str(errand.pilot_id) != str(pilot_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not assigned to this errand",
@@ -1892,7 +1996,7 @@ async def assign_job(
         await db.refresh(errand)
 
         try:
-            pilot_user = await db.get(User, int(pilot_id))
+            pilot_user = await db.get(User, pilot_id)
             await notify_customer_status(
                 db,
                 errand=errand,

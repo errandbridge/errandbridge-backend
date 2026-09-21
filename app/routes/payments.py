@@ -947,7 +947,7 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
                 errand = await db.get(Errand, int(tip_errand_id))
                 if not errand:
                     raise HTTPException(status_code=404, detail="Errand not found")
-                if int(errand.user_id) != int(user_id):
+                if str(errand.user_id) != str(user_id):
                     raise HTTPException(
                         status_code=403, detail="You do not own this errand"
                     )
@@ -1215,7 +1215,7 @@ async def verify_checkout_session(payload: VerifySessionRequest):
 
                         owner_email = ""
                         try:
-                            owner = await db.get(User, int(errand.user_id))
+                            owner = await db.get(User, errand.user_id)
                             owner_email = (
                                 (owner.email or "").strip().lower() if owner else ""
                             )

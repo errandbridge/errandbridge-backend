@@ -480,7 +480,7 @@ async def list_incident_messages(
         await require_admin_user(db, user.id)
     except HTTPException:
         incident = await db.get(IncidentReport, incident_id)
-        if not incident or int(incident.pilot_id or 0) != int(user.id):
+        if not incident or str(incident.pilot_id or "") != str(user.id):
             raise
 
     messages = await db.execute(
