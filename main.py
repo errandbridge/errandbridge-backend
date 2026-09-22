@@ -880,6 +880,7 @@ class ErrandResponse(BaseModel):
                 ("started_at", "startedAt"),
                 ("completed_at", "completedAt"),
                 ("pickup_time_slot_date", "pickupTimeSlotDate"),
+                ("photo_url", "photoUrl"),
             ]:
                 val = data.get(snk) if data.get(snk) is not None else data.get(cml)
                 data[snk] = val
@@ -925,6 +926,8 @@ class ErrandResponse(BaseModel):
     completedAt: Optional[datetime] = None
     pickup_time_slot_date: Optional[str] = None
     pickupTimeSlotDate: Optional[str] = None
+    photo_url: Optional[str] = None
+    photoUrl: Optional[str] = None
 
 
 # Initialize OpenAI client
@@ -1514,6 +1517,8 @@ def _errand_response(
         completedAt=model.completed_at,
         pickup_time_slot_date=getattr(model, "pickup_time_slot_date", None),
         pickupTimeSlotDate=getattr(model, "pickup_time_slot_date", None),
+        photo_url=getattr(model, "photo_url", None),
+        photoUrl=getattr(model, "photo_url", None),
     )
 
 
