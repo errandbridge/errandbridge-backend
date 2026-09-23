@@ -639,7 +639,7 @@ def _cors_origin_regex() -> str | None:
         return (
             r"^http://localhost$"
             r"|^http://127\.0\.0\.1$"
-            r"^http://localhost:(?:3000|3001|3002|3003)$"
+            r"|^http://localhost:(?:3000|3001|3002|3003)$"
             r"|^http://127\.0\.0\.1:(?:3000|3001|3002|3003)$"
             r"|^http://10\.0\.2\.2:(?:3000|3001|3002|3003)$"
             r"|^capacitor://localhost$"

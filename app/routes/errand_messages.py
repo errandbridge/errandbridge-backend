@@ -17,6 +17,7 @@ import re
 import sys
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -27,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from app.utils.admin_utils import require_admin_user
-from app.dto import ErrandMessagesResponse, FlexibleId
+from app.dto import ErrandMessagesResponse
 from auth import decode_access_token
 from database import get_db
 from models import Errand, ErrandMessage, User
@@ -116,7 +117,7 @@ async def _is_admin(db: AsyncSession, user: User) -> bool:
 
 
 async def _require_participant(
-    db: AsyncSession, *, errand_id: str, user: User
+    db: AsyncSession, *, errand_id: UUID, user: User
 ) -> Errand:
     errand = await db.get(Errand, errand_id)
     if not errand:
@@ -150,7 +151,7 @@ class ErrandMessageOut(BaseModel):
 
 @router.get("/{errand_id}/messages", response_model=ErrandMessagesResponse, operation_id="listErrandMessages", summary="Get errand chat messages", description="Retrieve chronological chat history between customer and pilot for an errand.")
 async def list_errand_messages(
-    errand_id: str,
+    errand_id: UUID,
     limit: int = 50,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -199,12 +200,13 @@ async def list_errand_messages(
         messages.append(
             {
                 "id": msg.id,
+                "errand_id": errand.id,
                 "message": body,
                 "sender_id": sender.id,
                 "sender_type": sender_type,
                 "sender_name": sender_name,
                 "mine": mine,
-                "created_at": msg.created_at,
+                "created_at": msg.created_at.isoformat(),
             }
         )
 
@@ -213,7 +215,7 @@ async def list_errand_messages(
 
 @router.post("/{errand_id}/messages", response_model=ErrandMessageOut, operation_id="sendErrandMessage", summary="Send errand chat message", description="Post a message in the direct errand conversation thread.")
 async def send_errand_message(
-    errand_id: str,
+    errand_id: UUID,
     payload: ErrandMessageIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -253,7 +255,7 @@ async def send_errand_message(
     )
 
     return ErrandMessageOut(
-        id=int(msg.id),
+        id=str(msg.id),
         message=msg.message,
         sender_id=str(user.id),
         sender_type=sender_type,
