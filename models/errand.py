@@ -48,6 +48,7 @@ class Errand(Base):
     issue_evidence_attachment_ids = Column(String, nullable=True)
     pickup_location = Column(String, nullable=True)
     dropoff_location = Column(String, nullable=True)
+    inspection_location = Column(String, nullable=True)
     pickup_contact_name = Column(String, nullable=True)
     pickup_contact_phone = Column(String, nullable=True)
     dropoff_contact_name = Column(String, nullable=True)

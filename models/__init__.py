@@ -1,5 +1,6 @@
 from .user import User
 from .errand import Errand
+from .errand_inspection import ErrandInspectionItem
 from .errand_event import ErrandEvent
 from .errand_attachment import ErrandAttachment
 from .attachment_share_link import AttachmentShareLink
@@ -23,6 +24,7 @@ from .stripe_checkout_session import StripeCheckoutSession
 __all__ = [
     "User",
     "Errand",
+    "ErrandInspectionItem",
     "ErrandEvent",
     "ErrandAttachment",
     "AttachmentShareLink",

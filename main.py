@@ -815,6 +815,8 @@ class AISuggestResponse(BaseModel):
 
 
 class ErrandCreateRequest(BaseModel):
+    inspection_location: Optional[str] = None
+    inspection_checklist: Optional[list[dict]] = None
     model_config = ConfigDict(populate_by_name=True)
 
     title: str
@@ -849,6 +851,8 @@ class ErrandCreateRequest(BaseModel):
 
 
 class ErrandResponse(BaseModel):
+    inspection_location: Optional[str] = None
+    inspection_checklist: Optional[list[dict]] = None
     model_config = ConfigDict(populate_by_name=True)
 
     id: Union[uuid.UUID, int, str]
@@ -1539,6 +1543,9 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
     user_id = _current_user_id_from_request(request)
 
     pickup_location = payload.pickup_location or payload.location
+    inspection_location = payload.inspection_location
+    if payload.category == 'property_v2' and inspection_location:
+        pickup_location = inspection_location
     note_parts = []
     if payload.category:
         note_parts.append(f"category: {payload.category}")
@@ -1633,6 +1640,7 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
             title=clean_title,
             description=payload.description or clean_title,
             pickup_location=pickup_location,
+            inspection_location=inspection_location,
             dropoff_location=payload.dropoff_location or payload.dropoffLocation,
             pickup_contact_name=pickup_name,
             pickup_contact_phone=pickup_phone,
@@ -1647,6 +1655,18 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
         await session.flush()
 
         model.reference_number = _make_reference_number(model.id)
+
+        if payload.category == 'property_v2' and payload.inspection_checklist:
+            for idx, item in enumerate(payload.inspection_checklist):
+                inspection_item = ErrandInspectionItem(
+                    errand_id=str(model.id),
+                    label=item.get("label", ""),
+                    requires_photo=item.get("requiresPhoto", False) or item.get("requires_photo", False),
+                    sort_order=idx
+                )
+                session.add(inspection_item)
+            await session.flush()
+
 
         if payment_session_row is not None:
             payment_session_row.used_for_errand_id = str(model.id)
@@ -1772,6 +1792,7 @@ async def list_errands(
 class ErrandStatusUpdateIn(BaseModel):
     status: str
     imageProofUrl: Optional[str] = None
+    issue_notes: Optional[str] = None
 
 
 @app.put("/errands/{errand_id}/status", response_model=ErrandResponse)
@@ -1798,6 +1819,16 @@ async def update_errand_status(
             current_user = user_res.scalar_one_or_none()
             if current_user and getattr(current_user, "role", None) == "pilot":
                 if model.pilot_id is None or str(model.pilot_id).strip() == "":
+                    # Check if pilot has any disputed errands
+                    disputed_res = await session.execute(
+                        select(Errand).where(
+                            cast(Errand.pilot_id, String) == str(user_id),
+                            Errand.status == "disputed"
+                        )
+                    )
+                    if disputed_res.first():
+                        raise HTTPException(status_code=403, detail="Cannot accept new errands while you have a disputed errand")
+
                     model.pilot_id = str(user_id)
                     model.assigned_to = str(user_id)
                 elif str(model.pilot_id) != str(user_id):
@@ -1805,8 +1836,18 @@ async def update_errand_status(
             else:
                 raise HTTPException(status_code=403, detail="Not allowed to update status")
 
+        if model.status == "disputed" and is_assigned_pilot and payload.status != "disputed":
+            raise HTTPException(status_code=403, detail="Pilots cannot change the status of a disputed errand")
+
         previous_status = model.status
         model.status = payload.status
+
+        if payload.status == "disputed":
+            if payload.issue_notes:
+                model.issue_notes = payload.issue_notes
+            model.issue_status = "open"
+            if not getattr(model, "issue_reported_at", None):
+                model.issue_reported_at = datetime.now(timezone.utc)
 
         # If entering delivery/pickup active states, ensure started_at is set for live tracking
         if payload.status in ["in_progress", "pickup_started", "picked_up"]:
