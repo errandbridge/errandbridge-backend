@@ -1069,10 +1069,26 @@ async def verify_checkout_session(payload: VerifySessionRequest):
         observe_stripe_verify_session(result="error", paid=False, kind="unknown")
         raise
 
+    is_payment_intent = payload.session_id.startswith("pi_")
+
     try:
-        session = stripe.checkout.Session.retrieve(
-            payload.session_id, expand=["subscription"]
-        )
+        if is_payment_intent:
+            intent = stripe.PaymentIntent.retrieve(payload.session_id)
+            # We mock the session object for the rest of the flow
+            class MockSession:
+                id = intent.id
+                status = "complete" if intent.status == "succeeded" else "open"
+                payment_status = "paid" if intent.status == "succeeded" else "unpaid"
+                mode = "payment"
+                amount_total = intent.amount
+                currency = intent.currency
+                customer = intent.customer
+                metadata = intent.metadata
+            session = MockSession()
+        else:
+            session = stripe.checkout.Session.retrieve(
+                payload.session_id, expand=["subscription"]
+            )
     except Exception as exc:  # noqa: BLE001
         observe_stripe_verify_session(result="error", paid=False, kind="unknown")
         raise HTTPException(
@@ -1638,3 +1654,152 @@ async def stripe_webhook(request: Request):
 @payments_router.post("/webhook")
 async def stripe_payments_webhook(request: Request):
     return await _handle_stripe_webhook(request, endpoint="payments_webhook")
+
+
+@payments_router.post("/create-setup-intent")
+async def create_setup_intent(request: Request):
+    try:
+        _ensure_stripe_ready()
+    except HTTPException:
+        raise
+        
+    user_id = await _resolve_user_id_from_request(request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    async with AsyncSessionLocal() as db:
+        user = await db.scalar(select(User).where(User.id == user_id))
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        if not user.stripe_customer_id:
+            customer = stripe.Customer.create(email=user.email, name=f"{user.first_name} {user.last_name}")
+            user.stripe_customer_id = customer.id
+            await db.commit()
+            
+        intent = stripe.SetupIntent.create(
+            customer=user.stripe_customer_id,
+            payment_method_types=['card'],
+        )
+        return {"clientSecret": intent.client_secret}
+
+@payments_router.get("/payment-methods")
+async def get_payment_methods(request: Request):
+    try:
+        _ensure_stripe_ready()
+    except HTTPException:
+        raise
+        
+    user_id = await _resolve_user_id_from_request(request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    async with AsyncSessionLocal() as db:
+        user = await db.scalar(select(User).where(User.id == user_id))
+        if not user or not user.stripe_customer_id:
+            return {"data": []}
+            
+        payment_methods = stripe.PaymentMethod.list(
+            customer=user.stripe_customer_id,
+            type="card",
+        )
+        return {"data": payment_methods.data}
+
+@payments_router.delete("/payment-methods/{payment_method_id}")
+async def delete_payment_method(payment_method_id: str, request: Request):
+    try:
+        _ensure_stripe_ready()
+    except HTTPException:
+        raise
+        
+    user_id = await _resolve_user_id_from_request(request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    async with AsyncSessionLocal() as db:
+        user = await db.scalar(select(User).where(User.id == user_id))
+        if not user or not user.stripe_customer_id:
+            raise HTTPException(status_code=404, detail="User or customer not found")
+            
+        pm = stripe.PaymentMethod.retrieve(payment_method_id)
+        if pm.customer != user.stripe_customer_id:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this payment method")
+            
+        stripe.PaymentMethod.detach(payment_method_id)
+        return {"status": "success"}
+
+@payments_router.post("/process-payment-intent")
+async def process_payment_intent(request: Request):
+    try:
+        _ensure_stripe_ready()
+    except HTTPException:
+        raise
+        
+    user_id = await _resolve_user_id_from_request(request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    payload = await request.json()
+    errand_id = payload.get("errand_id")
+    payment_method_id = payload.get("payment_method_id")
+    amount_cents = payload.get("amount_cents")
+    
+    if not payment_method_id or not amount_cents:
+        raise HTTPException(status_code=400, detail="Missing required parameters")
+        
+    async with AsyncSessionLocal() as db:
+        user = await db.scalar(select(User).where(User.id == user_id))
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        errand = None
+        if errand_id:
+            errand = await db.scalar(select(Errand).where(Errand.id == errand_id, Errand.user_id == user_id))
+            if not errand:
+                raise HTTPException(status_code=404, detail="Errand not found")
+            
+        if not user.stripe_customer_id:
+            raise HTTPException(status_code=400, detail="User has no stripe customer")
+            
+        metadata = {
+            "user_id": str(user_id)
+        }
+        if errand_id:
+            metadata["errand_id"] = str(errand_id)
+            
+        # Create PaymentIntent
+        intent = stripe.PaymentIntent.create(
+            amount=amount_cents,
+            currency="usd",
+            customer=user.stripe_customer_id,
+            payment_method=payment_method_id,
+            off_session=True,
+            confirm=True,
+            metadata=metadata
+        )
+        
+        if intent.status == "succeeded":
+            if errand:
+                errand.paymentStatus = "paid"
+                errand.paymentAmountCents = amount_cents
+                errand.paymentMethod = "stripe_saved_card"
+                errand.status = "open" # typically moves to open when paid
+            
+            # Record the successful checkout session manually since we bypassed Stripe Checkout
+            sess_row = StripeCheckoutSession(
+                stripe_session_id=intent.id, # store PI id as session id
+                user_id=str(user.id),
+                kind="payment",
+                mode="payment",
+                paid=True,
+                amount_total_minor=amount_cents,
+                currency="usd",
+                stripe_customer_id=user.stripe_customer_id,
+                used_for_errand_id=str(errand_id) if errand_id else None,
+                used_at=func.now() if errand_id else None
+            )
+            db.add(sess_row)
+            await db.commit()
+            
+        return {"status": intent.status, "intent_id": intent.id}
