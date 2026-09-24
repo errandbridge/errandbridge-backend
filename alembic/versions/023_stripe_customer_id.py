@@ -14,7 +14,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "023_add_stripe_customer_id_to_users"
+revision: str = "023_stripe_customer_id"
 down_revision: Union[str, Sequence[str], None] = "022_property_inspection"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
