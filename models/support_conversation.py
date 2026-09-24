@@ -8,7 +8,7 @@ class SupportConversation(Base):
     __tablename__ = "support_conversations"
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
-    session_id = Column(String, nullable=False, index=True)
+    session_id = Column(Uuid, nullable=False, index=True)
     user_id = Column(Uuid, ForeignKey("users.id"), nullable=True, index=True)
     status = Column(String, nullable=False, default="open")
     handoff_requested = Column(Boolean, default=False, nullable=False)

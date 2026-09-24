@@ -28,8 +28,8 @@ class Errand(Base):
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
     note = Column(String, nullable=True)
-    category_id = Column(String, nullable=True)
-    template_id = Column(String, nullable=True)
+    category_id = Column(Uuid, nullable=True)
+    template_id = Column(Uuid, nullable=True)
     support_type = Column(String, nullable=True)
     preferred_time = Column(String, nullable=True)
     priority_level = Column(String, nullable=True)
@@ -56,10 +56,10 @@ class Errand(Base):
     status = Column(String, default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
-    user_id = Column(String, nullable=False)
+    user_id = Column(Uuid, nullable=False)
 
     # Assignment tracking
-    assigned_to = Column(String, nullable=True, index=True)  # Admin user ID who is assigned
+    assigned_to = Column(Uuid, nullable=True, index=True)  # Admin user ID who is assigned
     assigned_at = Column(DateTime(timezone=True), nullable=True)  # When assigned
 
     # Review fields (after completion)
@@ -78,7 +78,7 @@ class Errand(Base):
     pickup_time_slot_date = Column(String, nullable=True)  # Date in YYYY-MM-DD format
 
     # Pilot delivery tracking fields
-    pilot_id = Column(String, nullable=True, index=True)  # FK to pilot user
+    pilot_id = Column(Uuid, nullable=True, index=True)  # FK to pilot user
     started_at = Column(
         DateTime(timezone=True), nullable=True
     )  # When pilot started delivery
@@ -102,7 +102,7 @@ class Errand(Base):
     )  # e.g., Stripe session.amount_total
     tip_currency = Column(String, nullable=True)  # e.g., 'usd', 'ngn'
     tip_paid_at = Column(DateTime(timezone=True), nullable=True)
-    tip_stripe_session_id = Column(String, nullable=True)
+    tip_stripe_session_id = Column(Uuid, nullable=True)
 
     # Payment metadata (Stripe-verified)
     # Stored for internal reconciliation and pilot reporting.

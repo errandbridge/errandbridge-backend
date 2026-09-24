@@ -8,10 +8,10 @@ class VoiceCallSession(Base):
     __tablename__ = "voice_call_sessions"
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
-    errand_id = Column(Integer, nullable=False, index=True)
-    initiator_user_id = Column(Integer, nullable=False)
-    pilot_user_id = Column(Integer, nullable=True)
-    customer_user_id = Column(Integer, nullable=True)
+    errand_id = Column(Uuid, nullable=False, index=True)
+    initiator_user_id = Column(Uuid, nullable=False)
+    pilot_user_id = Column(Uuid, nullable=True)
+    customer_user_id = Column(Uuid, nullable=True)
     status = Column(String, nullable=False, default="created")
     conference_name = Column(String, nullable=False, unique=True, index=True)
     pilot_phone_mask = Column(String, nullable=True)

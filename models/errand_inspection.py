@@ -6,8 +6,8 @@ from database import Base
 class ErrandInspectionItem(Base):
     __tablename__ = "errand_inspection_items"
     
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
-    errand_id = Column(String, nullable=False, index=True)
+    id = Column(Uuid, primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
+    errand_id = Column(Uuid, nullable=False, index=True)
     label = Column(String, nullable=False)
     requires_photo = Column(Boolean, default=False)
     completed = Column(Boolean, default=False)

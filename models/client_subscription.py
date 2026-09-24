@@ -10,14 +10,14 @@ class ClientSubscription(Base):
     __tablename__ = "client_subscriptions"
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
-    user_id = Column(String, nullable=False, index=True)
+    user_id = Column(Uuid, nullable=False, index=True)
 
     provider = Column(String, nullable=False, default="stripe")
     plan = Column(String, nullable=False, default="plus")
     status = Column(String, nullable=False, default="none")
 
-    stripe_customer_id = Column(String, nullable=True, index=True)
-    stripe_subscription_id = Column(String, nullable=True, unique=True, index=True)
+    stripe_customer_id = Column(Uuid, nullable=True, index=True)
+    stripe_subscription_id = Column(Uuid, nullable=True, unique=True, index=True)
 
     cancel_at_period_end = Column(Boolean, nullable=False, default=False)
     current_period_end = Column(DateTime(timezone=True), nullable=True)

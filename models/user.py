@@ -37,7 +37,7 @@ class User(Base):
     country = Column(String, nullable=True)
     address_verification_status = Column(String, nullable=False, default="pending")
 
-    stripe_customer_id = Column(String, nullable=True, index=True)
+    stripe_customer_id = Column(Uuid, nullable=True, index=True)
 
     # Profile and address fields
     date_of_birth = Column(Date, nullable=True)

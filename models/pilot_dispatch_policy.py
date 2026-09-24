@@ -16,4 +16,4 @@ class PilotDispatchPolicy(Base):
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-    updated_by_user_id = Column(Integer, nullable=True)
+    updated_by_user_id = Column(Uuid, nullable=True)

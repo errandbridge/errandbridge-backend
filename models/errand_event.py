@@ -13,4 +13,4 @@ class ErrandEvent(Base):
     new_status = Column(String, nullable=True)
     note = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    user_id = Column(String, nullable=True)
+    user_id = Column(Uuid, nullable=True)

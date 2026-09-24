@@ -19,5 +19,5 @@ class PilotDocument(Base):
     )  # pending | approved | rejected
     review_note = Column(String, nullable=True)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
-    reviewed_by_user_id = Column(Integer, nullable=True)
+    reviewed_by_user_id = Column(Uuid, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
