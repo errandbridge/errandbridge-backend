@@ -46,7 +46,7 @@ from app.routes.pilot_profile import router as pilot_profile_router
 from app.routes.user_profile import router as user_profile_router
 from app.routes.payments import router as payments_router, webhooks_router
 from app.routes.promo_codes import router as promo_codes_router
-from routes_auth import router as auth_router
+from routes_auth import router as auth_router, login_router
 from app.dto import (
     ErrandAttachmentItem,
     AttachmentLabelResponse,
@@ -1363,6 +1363,8 @@ graphql_app = GraphQLRouter(schema, context_getter=get_context, prefix="/graphql
 # Add routers
 app.include_router(graphql_app)
 app.include_router(auth_router)
+app.include_router(login_router)
+app.include_router(login_router, prefix="/api", include_in_schema=False)
 # Backwards compatibility: some deployed frontends historically called /api/auth/*.
 # Mounting the same router under /api keeps those clients working without needing
 # an immediate frontend redeploy.
