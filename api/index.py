@@ -1,24 +1,9 @@
-from __future__ import annotations
-import os
-import sys
-import traceback
+from fastapi import FastAPI
 
-try:
-    from main import app
-except Exception as err:
-    from fastapi import FastAPI
-    from fastapi.responses import JSONResponse
+app = FastAPI()
 
-    app = FastAPI()
-
-    @app.get("/health")
-    @app.get("/{full_path:path}")
-    async def debug_catchall(full_path: str = ""):
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "import_error": str(err),
-                "traceback": traceback.format_exc().splitlines(),
-            },
-        )
+@app.get("/")
+@app.get("/health")
+@app.get("/{full_path:path}")
+def health(full_path: str = ""):
+    return {"status": "healthy", "minimal": True, "path": full_path}
