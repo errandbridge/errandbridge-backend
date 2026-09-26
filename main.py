@@ -2106,36 +2106,40 @@ async def list_all_attachments(request: Request):
     if not user_id:
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
-    async with AsyncSessionLocal() as session:
-        from sqlalchemy import select
+    try:
+        async with AsyncSessionLocal() as session:
+            from sqlalchemy import select, cast, String
 
-        res = await session.execute(
-            select(ErrandAttachment)
-            .join(Errand, ErrandAttachment.errand_id == Errand.id)
-            .where(cast(Errand.user_id, String) == str(user_id))
-            .order_by(ErrandAttachment.id.desc())
-        )
-        items = res.scalars().all()
+            res = await session.execute(
+                select(ErrandAttachment)
+                .join(Errand, cast(ErrandAttachment.errand_id, String) == cast(Errand.id, String))
+                .where(cast(Errand.user_id, String) == str(user_id))
+                .order_by(ErrandAttachment.id.desc())
+            )
+            items = res.scalars().all()
 
-    return [
-        {
-            "id": a.id,
-            "errandId": a.errand_id,
-            "filename": a.original_filename,
-            "contentType": a.content_type,
-            "sizeBytes": a.size_bytes,
-            "url": f"/attachments/{a.id}/download",
-            "label": getattr(a, "label", None),
-            "reviewStatus": str(getattr(a, "review_status", "pending") or "pending"),
-            "reviewNote": getattr(a, "review_note", None),
-            "reviewedAt": (
-                a.reviewed_at.isoformat() if getattr(a, "reviewed_at", None) else None
-            ),
-            "reviewedByUserId": getattr(a, "reviewed_by_user_id", None),
-            "createdAt": a.created_at.isoformat() if a.created_at else None,
-        }
-        for a in items
-    ]
+        return [
+            {
+                "id": a.id,
+                "errandId": a.errand_id,
+                "filename": a.original_filename,
+                "contentType": a.content_type,
+                "sizeBytes": a.size_bytes,
+                "url": f"/attachments/{a.id}/download",
+                "label": getattr(a, "label", None),
+                "reviewStatus": str(getattr(a, "review_status", "pending") or "pending"),
+                "reviewNote": getattr(a, "review_note", None),
+                "reviewedAt": (
+                    a.reviewed_at.isoformat() if getattr(a, "reviewed_at", None) else None
+                ),
+                "reviewedByUserId": getattr(a, "reviewed_by_user_id", None),
+                "createdAt": a.created_at.isoformat() if a.created_at else None,
+            }
+            for a in items
+        ]
+    except Exception as exc:
+        print(f"[attachments] Error listing attachments for user {user_id}: {exc}", flush=True)
+        return []
 
 
 class AttachmentLabelIn(BaseModel):

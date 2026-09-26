@@ -12,7 +12,7 @@ except (
     stripe = None
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, cast, String
 
 from database import AsyncSessionLocal
 from models import (
@@ -556,14 +556,11 @@ def _parse_checkout_kind(metadata: dict[str, Any]) -> str:
     return kind or "payment"
 
 
-def _parse_user_id(metadata: dict[str, Any]) -> Optional[int]:
+def _parse_user_id(metadata: dict[str, Any]) -> Optional[str]:
     raw = metadata.get("user_id") or metadata.get("userId") or metadata.get("uid")
     if raw is None:
         return None
-    try:
-        return int(raw)
-    except Exception:
-        return None
+    return str(raw).strip() or None
 
 
 def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
@@ -578,16 +575,13 @@ def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
     return token.strip() or None
 
 
-async def _resolve_user_id_from_request(request: Request) -> Optional[int]:
+async def _resolve_user_id_from_request(request: Request) -> Optional[str]:
     header = request.headers.get("authorization") or request.headers.get(
         "Authorization"
     )
     token = _extract_bearer(header)
     user_id = decode_access_token(token) if token else None
-    try:
-        return int(user_id) if user_id else None
-    except Exception:
-        return None
+    return str(user_id).strip() if user_id is not None else None
 
 
 def _apply_percent_discount(amount_cents: int, percent_off: int) -> int:
@@ -790,31 +784,42 @@ async def my_subscription(request: Request):
     if not user_id:
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
-    async with AsyncSessionLocal() as db:
-        sub = await db.scalar(
-            select(ClientSubscription)
-            .where(
-                ClientSubscription.user_id == int(user_id),
-                ClientSubscription.plan == "plus",
+    try:
+        async with AsyncSessionLocal() as db:
+            sub = await db.scalar(
+                select(ClientSubscription)
+                .where(
+                    cast(ClientSubscription.user_id, String) == str(user_id),
+                    ClientSubscription.plan == "plus",
+                )
+                .order_by(ClientSubscription.id.desc())
             )
-            .order_by(ClientSubscription.id.desc())
+
+        status_val = (sub.status if sub else None) or None
+        active = bool(status_val in {"active", "trialing"})
+
+        return MySubscriptionResponse(
+            active=active,
+            status=status_val,
+            plan="plus",
+            cancel_at_period_end=(
+                bool(getattr(sub, "cancel_at_period_end", False)) if sub else False
+            ),
+            current_period_end=getattr(sub, "current_period_end", None) if sub else None,
+            stripe_subscription_id=(
+                getattr(sub, "stripe_subscription_id", None) if sub else None
+            ),
         )
-
-    status_val = (sub.status if sub else None) or None
-    active = bool(status_val in {"active", "trialing"})
-
-    return MySubscriptionResponse(
-        active=active,
-        status=status_val,
-        plan="plus",
-        cancel_at_period_end=(
-            bool(getattr(sub, "cancel_at_period_end", False)) if sub else False
-        ),
-        current_period_end=getattr(sub, "current_period_end", None) if sub else None,
-        stripe_subscription_id=(
-            getattr(sub, "stripe_subscription_id", None) if sub else None
-        ),
-    )
+    except Exception as exc:
+        print(f"[subscription/me] Error fetching subscription for user {user_id}: {exc}", flush=True)
+        return MySubscriptionResponse(
+            active=False,
+            status=None,
+            plan="plus",
+            cancel_at_period_end=False,
+            current_period_end=None,
+            stripe_subscription_id=None,
+        )
 
 
 @payments_router.post("/checkout-session", response_model=CheckoutSessionResponse)
@@ -905,7 +910,7 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
         async with AsyncSessionLocal() as db:
             existing = await db.scalar(
                 select(ClientSubscription).where(
-                    ClientSubscription.user_id == int(user_id),
+                    cast(ClientSubscription.user_id, String) == str(user_id),
                     ClientSubscription.plan == "plus",
                     ClientSubscription.status.in_(["active", "trialing"]),
                 )
@@ -1177,13 +1182,13 @@ async def verify_checkout_session(payload: VerifySessionRequest):
                 )
                 if not sub_row:
                     sub_row = ClientSubscription(
-                        user_id=int(metadata_user_id),
+                        user_id=str(metadata_user_id),
                         provider="stripe",
                         plan="plus",
                     )
                     db.add(sub_row)
 
-                sub_row.user_id = int(metadata_user_id)
+                sub_row.user_id = str(metadata_user_id)
                 sub_row.status = str(subscription_status or "unknown")
                 sub_row.stripe_customer_id = (
                     getattr(subscription, "customer", None)
@@ -1429,13 +1434,13 @@ async def _handle_stripe_webhook(request: Request, *, endpoint: str):
                 )
                 if not sub_row:
                     sub_row = ClientSubscription(
-                        user_id=int(metadata_user_id),
+                        user_id=str(metadata_user_id),
                         provider="stripe",
                         plan="plus",
                     )
                     db.add(sub_row)
 
-                sub_row.user_id = int(metadata_user_id)
+                sub_row.user_id = str(metadata_user_id)
                 if subscription_status:
                     sub_row.status = str(subscription_status)
                 if stripe_customer_id:
