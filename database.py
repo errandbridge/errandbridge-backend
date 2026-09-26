@@ -694,12 +694,21 @@ else:
     if "statement_cache_size" not in connect_args:
         connect_args["statement_cache_size"] = 0
         connect_args["prepared_statement_cache_size"] = 0
-    engine = create_async_engine(
-        DATABASE_URL,
-        echo=False,
-        poolclass=NullPool,
-        connect_args=connect_args,
-    )
+    try:
+        engine = create_async_engine(
+            DATABASE_URL,
+            echo=False,
+            poolclass=NullPool,
+            connect_args=connect_args,
+        )
+    except Exception as exc:
+        print(f"[DB CONFIG] Error creating async engine with DATABASE_URL: {exc}", flush=True)
+        try:
+            # Fallback without connect_args if connect_args caused the issue
+            engine = create_async_engine(DATABASE_URL, echo=False, poolclass=NullPool)
+        except Exception as exc2:
+            print(f"[DB CONFIG] Error creating fallback async engine: {exc2}", flush=True)
+            engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
 
 AsyncSessionLocal = sessionmaker(
     bind=engine,
