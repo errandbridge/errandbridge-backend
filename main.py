@@ -1079,16 +1079,18 @@ async def _startup_event() -> None:
     global _db_init_done
     env_name = (os.getenv("ENV") or "local").lower()
     running_in_aws = bool(os.getenv("AWS_EXECUTION_ENV"))
+    running_in_vercel = bool(os.getenv("VERCEL"))
 
     print("[STARTUP] ✨ Startup event handler called!", flush=True)
-    await _ensure_schema_compatibility()
+    try:
+        await _ensure_schema_compatibility()
+    except Exception as e:
+        print(f"[STARTUP] Schema compatibility warning: {e}", flush=True)
 
-    # Never use create_all in AWS/non-local environments.
-    # create_all does not apply schema migrations (it won't add columns like tip_amount_total_minor).
-    # In deployments we rely on Alembic (run in /app/prestart.sh).
-    if running_in_aws or env_name not in {"local"}:
+    # Never use create_all in AWS/Vercel/non-local environments.
+    if running_in_aws or running_in_vercel or env_name not in {"local"}:
         print(
-            f"[STARTUP] ℹ️  Skipping create_all in ENV={env_name} (aws={running_in_aws}); relying on migrations.",
+            f"[STARTUP] ℹ️  Skipping create_all in ENV={env_name} (aws={running_in_aws}, vercel={running_in_vercel}); relying on migrations.",
             flush=True,
         )
         _db_init_done = True

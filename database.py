@@ -636,13 +636,20 @@ if not _running_in_aws and not _in_docker_fs and DATABASE_URL:
     DATABASE_URL = _rewrite_docker_db_hostname_for_host(DATABASE_URL)
 
 
-# Determine if running locally (Docker Compose) or in production (RDS)
+# Determine if connecting to Supabase Cloud or running locally
+is_supabase = "supabase.co" in (DATABASE_URL or "").lower() or "supabase.com" in (DATABASE_URL or "").lower()
+_running_in_cloud = bool(os.getenv("VERCEL")) or _running_in_aws
+
 is_local = (
-    os.getenv("ENV", "local") == "local"
-    or (_in_docker_fs and not _running_in_aws)
-    or "@db:" in (DATABASE_URL or "")
-    or "@127.0.0.1:" in (DATABASE_URL or "")
-    or "@localhost:" in (DATABASE_URL or "")
+    not is_supabase
+    and not _running_in_cloud
+    and (
+        os.getenv("ENV", "local") == "local"
+        or (_in_docker_fs and not _running_in_aws)
+        or "@db:" in (DATABASE_URL or "")
+        or "@127.0.0.1:" in (DATABASE_URL or "")
+        or "@localhost:" in (DATABASE_URL or "")
+    )
 )
 
 if is_local:
