@@ -1,11 +1,8 @@
-from fastapi import FastAPI
+import sys
+import os
 
-app = FastAPI()
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 
-@app.get("/health")
-def health():
-    return {"status": "healthy"}
-
-@app.get("/{path:path}")
-def catch_all(path: str):
-    return {"status": "healthy", "path": path}
+from main import app
