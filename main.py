@@ -79,7 +79,13 @@ except ImportError:
 from dotenv import load_dotenv
 
 # ===== IDEMPOTENCY LOCK FOR STARTUP =====
-_db_init_lock = asyncio.Lock()
+_db_init_lock: asyncio.Lock | None = None
+
+def _get_db_init_lock() -> asyncio.Lock:
+    global _db_init_lock
+    if _db_init_lock is None:
+        _db_init_lock = asyncio.Lock()
+    return _db_init_lock
 _db_init_done = False
 
 
@@ -1093,7 +1099,7 @@ async def _startup_event() -> None:
         return
 
     # Use lock to prevent concurrent initialization
-    async with _db_init_lock:
+    async with _get_db_init_lock():
         if _db_init_done:
             print("[STARTUP] ℹ️  Database already initialized, skipping...", flush=True)
             return
