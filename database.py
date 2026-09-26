@@ -648,6 +648,15 @@ if is_local:
     print(f"[DB CONFIG] DATABASE_URL={_redact_database_url(DATABASE_URL)}")
     print("[DB CONFIG] Local mode: SSL disabled")
     connect_args = {}
+elif "supabase.co" in (DATABASE_URL or "").lower() or "supabase.com" in (DATABASE_URL or "").lower():
+    # Supabase Cloud: Use ssl="require" for asyncpg
+    print(f"[DB CONFIG] DATABASE_URL={_redact_database_url(DATABASE_URL)}")
+    print("[DB CONFIG] Supabase mode: SSL=require enabled")
+    connect_args = {
+        "ssl": "require",
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    }
 else:
     # Production/RDS: Enforce SSL
     ssl_context = _create_ssl_context_for_database_url(DATABASE_URL)
