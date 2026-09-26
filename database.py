@@ -92,6 +92,8 @@ _DEFAULT_LOCAL_DB_URL = (
 # Get DATABASE_URL from environment, prefer explicit DATABASE_URL over defaults
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL and "#@" in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("#@", "%23@")
 
 
 def _select_db_secret_payload() -> dict | None:
