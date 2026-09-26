@@ -9,35 +9,43 @@ if root_dir not in sys.path:
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-import_error = None
-import_tb = None
+app = FastAPI()
 
-try:
-    from main import app
-except Exception as e:
-    import_error = str(e)
-    import_tb = traceback.format_exc()
+modules = [
+    "database",
+    "schema",
+    "auth",
+    "models",
+    "routes_admin",
+    "routes_auth",
+    "app.routes.payments",
+    "app.routes.pilot_delivery",
+    "app.routes.pilot_profile",
+    "app.routes.user_profile",
+    "app.routes.dashboard",
+]
 
-    app = FastAPI()
+failed_mod = None
+failed_err = None
+failed_tb = None
 
-    @app.get("/health")
-    def health_fallback():
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "error": import_error,
-                "traceback": import_tb,
-            }
-        )
+for mod in modules:
+    try:
+        __import__(mod)
+    except Exception as e:
+        failed_mod = mod
+        failed_err = str(e)
+        failed_tb = traceback.format_exc()
+        break
 
-    @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-    async def catch_all(path: str):
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "error": import_error,
-                "traceback": import_tb,
-            }
-        )
+@app.get("/health")
+def health():
+    if failed_mod:
+        return JSONResponse(status_code=500, content={"failed_module": failed_mod, "error": failed_err, "traceback": failed_tb})
+    return {"status": "healthy", "modules_loaded": len(modules)}
+
+@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+async def catch_all(path: str):
+    if failed_mod:
+        return JSONResponse(status_code=500, content={"failed_module": failed_mod, "error": failed_err, "traceback": failed_tb})
+    return {"status": "healthy", "path": path}
