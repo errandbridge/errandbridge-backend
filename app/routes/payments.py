@@ -1030,10 +1030,15 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
     try:
         session = stripe.checkout.Session.create(**session_kwargs)
     except Exception as exc:  # noqa: BLE001
+        print(f"[STRIPE ERROR] Failed to create checkout session: {type(exc).__name__}: {exc}", flush=True)
         observe_stripe_checkout_session(result="error", mode=checkout_mode, kind=kind)
+        detail_msg = f"Stripe session creation failed: {exc}"
+        is_auth_error = "Expired API Key" in str(exc) or "Invalid API Key" in str(exc) or (stripe and isinstance(exc, getattr(stripe, "AuthenticationError", ()))) or str(getattr(stripe, "api_key", "")).endswith("p7dc")
+        if is_auth_error:
+            detail_msg = "Stripe session creation failed: The backend Stripe secret key is expired or invalid. Please update STRIPE_SECRET_KEY in Vercel with your active key from dashboard.stripe.com, or use 'Enable Test Mode' below."
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Stripe session creation failed",
+            detail=detail_msg,
         ) from exc
 
     observe_stripe_checkout_session(result="ok", mode=checkout_mode, kind=kind)
