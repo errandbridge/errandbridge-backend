@@ -11,19 +11,7 @@ from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
-modules = [
-    "database",
-    "schema",
-    "auth",
-    "models",
-    "routes_admin",
-    "routes_auth",
-    "app.routes.payments",
-    "app.routes.pilot_delivery",
-    "app.routes.pilot_profile",
-    "app.routes.user_profile",
-    "app.routes.dashboard",
-]
+modules = ["database"]
 
 failed_mod = None
 failed_err = None
@@ -43,9 +31,3 @@ def health():
     if failed_mod:
         return JSONResponse(status_code=500, content={"failed_module": failed_mod, "error": failed_err, "traceback": failed_tb})
     return {"status": "healthy", "modules_loaded": len(modules)}
-
-@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-async def catch_all(path: str):
-    if failed_mod:
-        return JSONResponse(status_code=500, content={"failed_module": failed_mod, "error": failed_err, "traceback": failed_tb})
-    return {"status": "healthy", "path": path}
