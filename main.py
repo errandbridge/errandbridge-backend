@@ -1,4 +1,10 @@
 from __future__ import annotations
+import sys
+try:
+    import crypt
+except ImportError:
+    import types
+    sys.modules["crypt"] = types.ModuleType("crypt")
 import uuid
 from typing import Optional, Literal, Union
 from database import AsyncSessionLocal
