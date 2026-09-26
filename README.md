@@ -20,11 +20,11 @@ docker compose up --build -d db api ml prometheus grafana
 
 Primary local URLs:
 
-- API root: <http://localhost:8001/>
-- OpenAPI docs: <http://localhost:8001/docs>
-- OpenAPI schema JSON: <http://localhost:8001/openapi.json>
-- GraphQL: <http://localhost:8001/graphql>
-- Metrics: <http://localhost:8001/metrics>
+- API root: <http://localhost:8000/>
+- OpenAPI docs: <http://localhost:8000/docs>
+- OpenAPI schema JSON: <http://localhost:8000/openapi.json>
+- GraphQL: <http://localhost:8000/graphql>
+- Metrics: <http://localhost:8000/metrics>
 
 Full Swagger/API usage notes live in
 `docs/SWAGGER_API_DOCUMENTATION.md`.
