@@ -13,23 +13,26 @@ app = FastAPI()
 
 _main_app = None
 _import_error = None
-_import_tb = None
 
-try:
-    from main import app as _main_app
-except Exception as e:
-    _import_error = str(e)
-    _import_tb = traceback.format_exc()
+def get_main_app():
+    global _main_app, _import_error
+    if _main_app is None and _import_error is None:
+        try:
+            from main import app as loaded_app
+            _main_app = loaded_app
+        except Exception as e:
+            _import_error = traceback.format_exc()
+    return _main_app
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
 async def handle_request(request: Request, path: str = ""):
-    if _main_app is not None:
-        return await _main_app(request.scope, request.receive, request._send)
+    main_instance = get_main_app()
+    if main_instance is not None:
+        return await main_instance(request.scope, request.receive, request._send)
     return JSONResponse(
         status_code=500,
         content={
-            "error": "Failed to load main application",
-            "exception": _import_error,
-            "traceback": _import_tb,
+            "error": "Failed to import main.py",
+            "traceback": _import_error,
         },
     )
