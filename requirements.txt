@@ -2,10 +2,7 @@ fastapi
 strawberry-graphql[fastapi]==0.291.3
 sqlalchemy
 asyncpg
-psycopg[binary]
 alembic
-prometheus-client
-prometheus-fastapi-instrumentator
 python-dotenv
 passlib[bcrypt]
 python-jose[cryptography]
