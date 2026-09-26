@@ -690,11 +690,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
-    if not _schema_compatibility_done:
-        try:
-            await _ensure_schema_compatibility_once()
-        except Exception as schema_err:
-            print(f"[MIDDLEWARE] Schema check failed: {schema_err}", flush=True)
     response = await call_next(request)
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -1205,7 +1200,10 @@ async def _startup_event() -> None:
 
 
 # Prometheus metrics
-Instrumentator().instrument(app).expose(app, include_in_schema=False, should_gzip=True)
+try:
+    Instrumentator().instrument(app).expose(app, include_in_schema=False, should_gzip=True)
+except Exception as _prom_err:
+    print(f"[METRICS] Prometheus instrumentator skipped: {_prom_err}", flush=True)
 
 
 # Health check endpoint - liveness (should not depend on external services)
