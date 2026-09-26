@@ -5,6 +5,7 @@ asyncpg
 alembic
 python-dotenv
 passlib[bcrypt]
+bcrypt
 python-jose[cryptography]
 email-validator
 python-multipart

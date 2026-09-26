@@ -5,6 +5,12 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+try:
+    import crypt
+except ImportError:
+    import types
+    sys.modules["crypt"] = types.ModuleType("crypt")
+
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
