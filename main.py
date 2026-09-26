@@ -1084,6 +1084,15 @@ async def _startup_event() -> None:
     running_in_vercel = bool(os.getenv("VERCEL"))
 
     print("[STARTUP] ✨ Startup event handler called!", flush=True)
+    # Never run schema alterations or create_all in AWS/Vercel/non-local serverless environments.
+    if running_in_aws or running_in_vercel or env_name not in {"local"}:
+        print(
+            f"[STARTUP] ℹ️  Skipping schema DDL in ENV={env_name} (aws={running_in_aws}, vercel={running_in_vercel}); relying on migrations.",
+            flush=True,
+        )
+        _db_init_done = True
+        return
+
     try:
         await _ensure_schema_compatibility()
     except Exception as e:
