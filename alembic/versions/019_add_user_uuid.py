@@ -1,3 +1,4 @@
+from __future__ import annotations
 """add stable public UUID to users
 
 Revision ID: 019_add_user_uuid

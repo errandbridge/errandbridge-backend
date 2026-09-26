@@ -1,3 +1,4 @@
+from __future__ import annotations
 """initial schema
 
 Revision ID: 98d01594b2a6

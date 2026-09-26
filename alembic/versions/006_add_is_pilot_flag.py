@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add is_pilot flag to users table
 
 Revision ID: 006_add_is_pilot_flag

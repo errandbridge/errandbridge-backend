@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Dev-only DB fixups.
 
 This script is intentionally idempotent and can be run multiple times.

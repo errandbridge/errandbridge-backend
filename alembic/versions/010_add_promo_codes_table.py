@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add promo codes table
 
 Revision ID: 010_add_promo_codes

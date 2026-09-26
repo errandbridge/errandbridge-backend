@@ -1,3 +1,4 @@
+from __future__ import annotations
 """alter user_id columns to varchar
 
 Revision ID: 020_user_id_to_varchar

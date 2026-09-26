@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Voice Telephony Domain Data Transfer Objects (DTOs)."""
 
 from typing import Optional

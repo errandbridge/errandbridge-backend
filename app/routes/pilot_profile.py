@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Pilot Profile Settings Routes
 Handles pilot profile updates: personal info, address, vehicle details

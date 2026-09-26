@@ -1,3 +1,4 @@
+from __future__ import annotations
 import uuid
 """Pilot Location model for GPS tracking"""
 

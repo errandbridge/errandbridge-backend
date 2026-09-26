@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add must_change_password to User
 
 Revision ID: 829d03791d91

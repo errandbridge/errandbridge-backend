@@ -1,3 +1,4 @@
+from __future__ import annotations
 """add pilot dispatch policy table
 
 Revision ID: 014_add_pilot_dispatch_policy

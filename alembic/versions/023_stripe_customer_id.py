@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add stripe_customer_id to users table
 
 Revision ID: 023_add_stripe_customer_id_to_users

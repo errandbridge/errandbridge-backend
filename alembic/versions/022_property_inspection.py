@@ -1,3 +1,4 @@
+from __future__ import annotations
 """add property inspection
 
 Revision ID: 022_property_inspection

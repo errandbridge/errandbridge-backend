@@ -1,3 +1,4 @@
+from __future__ import annotations
 """add pilot dispatch controls
 
 Revision ID: 013_add_pilot_dispatch_controls

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Pilot and Delivery Domain Data Transfer Objects (DTOs).
 
 Covers pilot job marketplace, assigned errand management, delivery lifecycle,

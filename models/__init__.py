@@ -1,3 +1,4 @@
+from __future__ import annotations
 from .user import User
 from .errand import Errand
 from .errand_inspection import ErrandInspectionItem

@@ -1,3 +1,4 @@
+from __future__ import annotations
 # NOTE: If you see 'Import "sklearn.ensemble" could not be resolved', run:
 #   pip install scikit-learn
 import pandas as pd

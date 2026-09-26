@@ -1,3 +1,4 @@
+from __future__ import annotations
 from auth_user_query import auth_safe_user_by_email_query
 
 

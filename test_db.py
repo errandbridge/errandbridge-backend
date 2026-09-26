@@ -1,3 +1,4 @@
+from __future__ import annotations
 import sqlalchemy
 from sqlalchemy import create_engine
 

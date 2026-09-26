@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Errands, Attachments, and Messages Domain Data Transfer Objects (DTOs)."""
 
 from datetime import datetime

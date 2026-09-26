@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 from database import async_session_maker
 from models.user import User

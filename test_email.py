@@ -1,3 +1,4 @@
+from __future__ import annotations
 from app.utils.email_templates import get_security_code_email
 
 html = get_security_code_email("949564")

@@ -1,3 +1,4 @@
+from __future__ import annotations
 # TODO: Install prometheus_client and uncomment the import below
 from prometheus_client import Counter, start_http_server
 import threading

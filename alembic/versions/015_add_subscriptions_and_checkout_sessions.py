@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add subscriptions and Stripe checkout sessions
 
 Revision ID: 015_add_subscriptions_checkout

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add tip metadata to errands
 
 Revision ID: 011_add_tip_metadata

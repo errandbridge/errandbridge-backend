@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Reusable Core DTOs, Enums, and Response Wrappers for ErrandBridge.
 
 Provides base models with camelCase aliases (CamelModel), flexible ID types,

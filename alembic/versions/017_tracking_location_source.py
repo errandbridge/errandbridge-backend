@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add source metadata to pilot locations
 
 Revision ID: 017_tracking_location_source

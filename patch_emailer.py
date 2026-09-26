@@ -1,3 +1,4 @@
+from __future__ import annotations
 import sys
 
 with open("app/services/emailer.py", "r") as f:

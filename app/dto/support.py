@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Support and Incidents Domain Data Transfer Objects (DTOs)."""
 
 from datetime import datetime

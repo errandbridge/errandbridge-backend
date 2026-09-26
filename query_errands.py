@@ -1,3 +1,4 @@
+from __future__ import annotations
 from sqlalchemy import create_engine, text
 engine = create_engine("sqlite:////Users/solopayne/Errandbridge-Project/errandbridge-backend/errandbridge.db")
 with engine.connect() as conn:

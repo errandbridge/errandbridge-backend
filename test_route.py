@@ -1,3 +1,4 @@
+from __future__ import annotations
 import requests
 
 url = "http://localhost:8001/errands/dummy/status"

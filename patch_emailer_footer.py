@@ -1,3 +1,4 @@
+from __future__ import annotations
 import re
 
 with open("app/utils/email_templates.py", "r") as f:

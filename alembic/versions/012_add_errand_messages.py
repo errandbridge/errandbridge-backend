@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add errand messages
 
 Revision ID: 012_add_errand_messages

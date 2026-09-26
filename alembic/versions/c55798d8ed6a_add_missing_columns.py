@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add missing columns
 
 Revision ID: c55798d8ed6a

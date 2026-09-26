@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Alembic migration for errand_events table
 """

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from app.metrics.anomaly_metrics import (
     increment_anomaly_alert_metric,
 )  # Prometheus metric

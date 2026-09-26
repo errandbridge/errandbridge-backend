@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add pilot profile fields to users table
 
 Revision ID: 005_pilot_profile_fields

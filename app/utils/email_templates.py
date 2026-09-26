@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 def get_security_code_email(code: str, expires_in_minutes: int = 10) -> str:
     # 60:30:10 rule inspired colors

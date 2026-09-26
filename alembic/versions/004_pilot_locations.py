@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add pilot locations table for GPS tracking
 
 Revision ID: 004_pilot_locations

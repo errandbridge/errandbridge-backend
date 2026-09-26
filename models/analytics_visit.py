@@ -1,3 +1,4 @@
+from __future__ import annotations
 import uuid
 from sqlalchemy import Column, Uuid, DateTime, Integer, String
 from sqlalchemy.sql import func

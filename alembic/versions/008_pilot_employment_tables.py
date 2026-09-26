@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add pilot employment application tables
 
 Revision ID: 008_pilot_employment_tables

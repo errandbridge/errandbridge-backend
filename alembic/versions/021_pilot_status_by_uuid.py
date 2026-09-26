@@ -1,3 +1,4 @@
+from __future__ import annotations
 """alter pilot_status_changed_by to uuid
 
 Revision ID: 021_pilot_status_by_uuid

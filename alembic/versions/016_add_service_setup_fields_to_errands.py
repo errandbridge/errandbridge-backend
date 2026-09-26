@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add service setup pricing fields to errands
 
 Revision ID: 016_service_setup_errands

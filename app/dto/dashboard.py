@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Consolidated Customer, Pilot, and Admin Dashboard DTO Trees.
 
 Provides rich, composable, strongly-typed domain representations designed to

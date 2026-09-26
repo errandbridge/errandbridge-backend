@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Revision to add note field to errands table
 """

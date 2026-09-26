@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 from database import engine, Base
 from models import (

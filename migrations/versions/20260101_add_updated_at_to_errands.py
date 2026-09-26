@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Alembic migration to add updated_at column to errands table
 """

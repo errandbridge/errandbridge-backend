@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Add payment metadata to errands
 
 Revision ID: 009_add_payment_metadata

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Backfill is_pilot for existing pilot users
 
 Revision ID: 007_backfill_is_pilot

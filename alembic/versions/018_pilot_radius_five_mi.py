@@ -1,3 +1,4 @@
+from __future__ import annotations
 """set pilot dispatch default radius to five miles
 
 Revision ID: 018_pilot_radius_five_mi

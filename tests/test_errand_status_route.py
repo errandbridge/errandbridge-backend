@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Exercise the REST status handler without booting external app services."""
 import ast
 import sys

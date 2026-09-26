@@ -1,3 +1,4 @@
+from __future__ import annotations
 """System and Health Domain Data Transfer Objects (DTOs)."""
 
 from typing import Any, Optional

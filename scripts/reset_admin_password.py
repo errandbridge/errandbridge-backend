@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Script to reset admin password using app's own hash_password
 
 import sys

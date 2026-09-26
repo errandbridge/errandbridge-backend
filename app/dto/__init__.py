@@ -1,3 +1,4 @@
+from __future__ import annotations
 """ErrandBridge Data Transfer Objects (DTO) Package."""
 
 from app.dto.common import (

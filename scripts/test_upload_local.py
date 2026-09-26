@@ -1,3 +1,4 @@
+from __future__ import annotations
 import requests
 
 with open("test_local.txt", "w") as f:
