@@ -140,7 +140,7 @@ class ErrandTimelineEvent:
     """
 
     id: uuid.UUID
-    errandId: int
+    errandId: uuid.UUID
     referenceNumber: str
     errandTitle: str
     eventType: str
@@ -2646,8 +2646,8 @@ class Query:
     async def errandTimelineEvents(
         self,
         info: Info,
-        errandIds: list[int] | None = None,
-        sinceId: int | None = None,
+        errandIds: list[uuid.UUID] | None = None,
+        sinceId: str | None = None,
         limit: int = 50,
         order: SortOrder = SortOrder.ASC,
     ) -> list[ErrandTimelineEvent]:
@@ -2719,8 +2719,8 @@ class Query:
             created_at = getattr(e, "created_at", None) or datetime.now(timezone.utc)
             events.append(
                 ErrandTimelineEvent(
-                    id=str(e.id),
-                    errandId=str(e.errand_id),
+                    id=e.id,
+                    errandId=e.errand_id,
                     referenceNumber=str(reference),
                     errandTitle=str(getattr(errand, "title", "") or ""),
                     eventType=str(getattr(e, "event_type", "") or "status_update"),
