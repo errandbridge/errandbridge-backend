@@ -1,5 +1,6 @@
 fastapi
 strawberry-graphql[fastapi]==0.291.3
+graphql-core>=3.2.0,<3.3.0
 sqlalchemy[asyncio]
 greenlet
 asyncpg
