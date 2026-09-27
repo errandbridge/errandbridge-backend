@@ -103,7 +103,7 @@ class Errand(Base):
     )  # e.g., Stripe session.amount_total
     tip_currency = Column(String, nullable=True)  # e.g., 'usd', 'ngn'
     tip_paid_at = Column(DateTime(timezone=True), nullable=True)
-    tip_stripe_session_id = Column(Uuid, nullable=True)
+    tip_stripe_session_id = Column(String, nullable=True)
 
     # Payment metadata (Stripe-verified)
     # Stored for internal reconciliation and pilot reporting.

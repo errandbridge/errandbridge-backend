@@ -11,7 +11,7 @@ class StripeCheckoutSession(Base):
     __tablename__ = "stripe_checkout_sessions"
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4, index=True)
-    stripe_session_id = Column(Uuid, nullable=False, unique=True, index=True)
+    stripe_session_id = Column(String, nullable=False, unique=True, index=True)
 
     user_id = Column(Uuid, nullable=True, index=True)
     kind = Column(
@@ -23,8 +23,8 @@ class StripeCheckoutSession(Base):
     amount_total_minor = Column(Integer, nullable=True)
     currency = Column(String, nullable=True)
 
-    stripe_customer_id = Column(Uuid, nullable=True, index=True)
-    stripe_subscription_id = Column(Uuid, nullable=True, index=True)
+    stripe_customer_id = Column(String, nullable=True, index=True)
+    stripe_subscription_id = Column(String, nullable=True, index=True)
 
     used_for_errand_id = Column(Uuid, nullable=True, index=True)
     used_at = Column(DateTime(timezone=True), nullable=True)

@@ -2647,7 +2647,7 @@ class Query:
         self,
         info: Info,
         errandIds: list[uuid.UUID] | None = None,
-        sinceId: str | None = None,
+        sinceId: int | None = None,
         limit: int = 50,
         order: SortOrder = SortOrder.ASC,
     ) -> list[ErrandTimelineEvent]:

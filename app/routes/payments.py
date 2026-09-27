@@ -1801,14 +1801,14 @@ async def process_payment_intent(request: Request):
             
             sess_row = StripeCheckoutSession(
                 stripe_session_id=intent_id,
-                user_id=str(user.id),
+                user_id=user.id,
                 kind="payment",
                 mode="payment",
                 paid=True,
                 amount_total_minor=amount_cents,
                 currency=currency,
                 stripe_customer_id=user.stripe_customer_id or "demo_customer",
-                used_for_errand_id=str(errand_id) if errand_id else None,
+                used_for_errand_id=errand.id if errand else None,
                 used_at=func.now() if errand_id else None,
             )
             db.add(sess_row)
@@ -1830,7 +1830,7 @@ async def process_payment_intent(request: Request):
                 await db.commit()
             except Exception as exc:
                 logger.error(f"Failed to auto-create Stripe customer for user {user.id}: {exc}")
-                raise HTTPException(status_code=500, detail=f"Failed to create Stripe customer: {exc}")
+                raise HTTPException(status_code=400, detail=f"Failed to setup Stripe customer: {getattr(exc, 'user_message', None) or exc}")
 
         # Attach payment method to customer if not already attached
         try:
@@ -1864,7 +1864,7 @@ async def process_payment_intent(request: Request):
             )
         except Exception as exc:
             logger.error(f"Unexpected error creating PaymentIntent: {exc}")
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=400, detail=getattr(exc, "user_message", None) or str(exc))
         
         if intent.status == "succeeded":
             if errand:
@@ -1876,14 +1876,14 @@ async def process_payment_intent(request: Request):
             # Record the successful checkout session manually since we bypassed Stripe Checkout
             sess_row = StripeCheckoutSession(
                 stripe_session_id=intent.id, # store PI id as session id
-                user_id=str(user.id),
+                user_id=user.id,
                 kind="payment",
                 mode="payment",
                 paid=True,
                 amount_total_minor=amount_cents,
                 currency=currency,
                 stripe_customer_id=user.stripe_customer_id,
-                used_for_errand_id=str(errand_id) if errand_id else None,
+                used_for_errand_id=errand.id if errand else None,
                 used_at=func.now() if errand_id else None,
             )
             db.add(sess_row)
