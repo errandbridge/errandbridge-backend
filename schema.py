@@ -2646,7 +2646,7 @@ class Query:
     async def errandTimelineEvents(
         self,
         info: Info,
-        errandIds: list[uuid.UUID] | None = None,
+        errandIds: list[int] | None = None,
         sinceId: int | None = None,
         limit: int = 50,
         order: SortOrder = SortOrder.ASC,
@@ -2687,18 +2687,18 @@ class Query:
         if not is_admin:
             stmt = stmt.where(ErrandModel.user_id == current_user_id)
 
-        ids_norm: list[int] | None = None
+        ids_norm: list[str] | None = None
         if errandIds is not None:
             ids_norm = [str(i) for i in (errandIds or []) if i is not None]
             if not ids_norm:
                 return []
-            stmt = stmt.where(ErrandEvent.errand_id.in_(ids_norm))
+            stmt = stmt.where(cast(ErrandEvent.errand_id, String).in_(ids_norm))
 
         if sinceId is not None:
             try:
-                stmt = stmt.where(ErrandEvent.id > int(sinceId))
+                stmt = stmt.where(cast(ErrandEvent.id, Integer) > int(sinceId))
             except Exception:
-                # If the client passes garbage, treat as "no since".
+                # If the client passes garbage or UUID id, treat as no since filter.
                 pass
 
         if order == SortOrder.DESC:
