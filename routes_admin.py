@@ -833,7 +833,7 @@ async def list_errands(
     authorization = request.headers.get("authorization")
     admin = await _require_admin(db, authorization)
 
-    q = select(Errand, User).join(User, cast(User.id, String) == cast(Errand.user_id, String))
+    q = select(Errand, User).outerjoin(User, cast(User.id, String) == cast(Errand.user_id, String))
     if user_id is not None:
         q = q.where(Errand.user_id == user_id)
     if status is not None:
@@ -861,10 +861,11 @@ async def list_errands(
             pilot_id=getattr(errand, "pilot_id", None),
             assigned_at=getattr(errand, "assigned_at", None),
             user_id=errand.user_id,
-            customer_name=f"{user.first_name or ''} {user.last_name or ''}".strip()
-            or user.email,
-            customer_email=user.email,
-            customer_phone=user.phone,
+            customer_name=(
+                f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
+            ) if user else "Customer",
+            customer_email=user.email if user else None,
+            customer_phone=user.phone if user else None,
             created_at=errand.created_at,
             confirmation_sent_at=getattr(errand, "confirmation_sent_at", None),
             amount=getattr(errand, "amount", None),
