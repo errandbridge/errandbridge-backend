@@ -1098,6 +1098,12 @@ async def list_attachments(
                 stored_filename=attachment.stored_filename,
                 content_type=attachment.content_type,
                 size_bytes=int(attachment.size_bytes or 0),
+                label=attachment.label,
+                review_status=attachment.review_status,
+                review_note=attachment.review_note,
+                reviewed_at=attachment.reviewed_at,
+                reviewed_by_user_id=attachment.reviewed_by_user_id,
+                created_at=attachment.created_at,
                 label=getattr(attachment, "label", None),
                 review_status=str(
                     getattr(attachment, "review_status", "pending") or "pending"
