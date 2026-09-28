@@ -1729,13 +1729,14 @@ async def admin_download_attachment(
     )
 
     cfg = get_storage_config()
-    if cfg.driver == "s3":
-        key = s3_key(cfg.s3_prefix, attachment.stored_filename)
+    if cfg.driver in ("s3", "supabase"):
+        key = s3_key(cfg.s3_prefix, attachment.stored_filename) if cfg.driver == "s3" else attachment.stored_filename
         url = presign_or_stream_key(
             key=key,
             filename=attachment.original_filename,
             content_type=attachment.content_type,
             expires_seconds=120,
+            bucket_name="errand-runs",
         )
         return RedirectResponse(url=url, status_code=302)
 
@@ -1812,13 +1813,14 @@ async def download_pilot_document(
     )
 
     cfg = get_storage_config()
-    if cfg.driver == "s3":
-        key = s3_key(cfg.s3_prefix, document.stored_filename)
+    if cfg.driver in ("s3", "supabase"):
+        key = s3_key(cfg.s3_prefix, document.stored_filename) if cfg.driver == "s3" else document.stored_filename
         url = presign_or_stream_key(
             key=key,
             filename=document.original_filename,
             content_type=document.content_type,
             expires_seconds=120,
+            bucket_name="verifications",
         )
         return RedirectResponse(url=url, status_code=302)
 
@@ -1971,13 +1973,14 @@ async def download_pilot_employment_attachment(
     )
 
     cfg = get_storage_config()
-    if cfg.driver == "s3":
-        key = s3_key(cfg.s3_prefix, attachment.stored_filename)
+    if cfg.driver in ("s3", "supabase"):
+        key = s3_key(cfg.s3_prefix, attachment.stored_filename) if cfg.driver == "s3" else attachment.stored_filename
         url = presign_or_stream_key(
             key=key,
             filename=attachment.original_filename,
             content_type=attachment.content_type,
             expires_seconds=120,
+            bucket_name="errand-runs",
         )
         return RedirectResponse(url=url, status_code=302)
 
