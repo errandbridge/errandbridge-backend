@@ -31,6 +31,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from models import User
 from database import get_db
+from app.services.storage import put_bytes
+
 from app.dto import (
     PilotProfileUpdateResponse,
     PilotChangePasswordResponse,
@@ -143,6 +145,7 @@ def _serialize_profile(user: User) -> dict:
     insurance_expiry = getattr(user, "insurance_expiry", None)
     return {
         "id": user.id,
+        "user_uuid": str(user.user_uuid) if getattr(user, "user_uuid", None) else str(user.id),
         "email": user.email,
         "first_name": user.first_name,
         "last_name": user.last_name,
@@ -321,7 +324,7 @@ async def update_availability(
         )
 
 
-@router.put("/profile", response_model=PilotProfileResponse, operation_id="updatePilotProfile", summary="Update pilot profile", description="Update pilot personal, telephone, and operational information.")
+@router.put("/profile", response_model=PilotProfileUpdateResponse, operation_id="updatePilotProfile", summary="Update pilot profile", description="Update pilot personal, telephone, and operational information.")
 async def update_profile(
     first_name: Optional[str] = Form(None),
     last_name: Optional[str] = Form(None),
@@ -361,10 +364,14 @@ async def update_profile(
             # Save image
             file_ext = os.path.splitext(profile_image.filename)[1]
             file_name = f"pilot_{user.id}_{datetime.now().timestamp()}{file_ext}"
-            file_path = str(PROFILE_UPLOAD_DIR / file_name)
-
-            with open(file_path, "wb") as f:
-                f.write(content)
+            
+            # Use storage service to put the file into avatars bucket
+            driver, _ = put_bytes(
+                stored_filename=file_name,
+                content=content,
+                content_type=profile_image.content_type,
+                bucket_name="avatars"
+            )
 
             profile_image_url = f"/uploads/profiles/{file_name}"
 

@@ -37,6 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from auth import decode_access_token
 from database import get_db
 from models import User
+from app.services.storage import put_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -147,11 +148,15 @@ async def update_profile_image(
         file_ext = ".jpg"
 
     file_name = f"user_{user.id}_{datetime.now().timestamp()}{file_ext}"
-    file_path = os.path.join(UPLOAD_DIR, file_name)
 
     try:
-        with open(file_path, "wb") as f:
-            f.write(content)
+        # Use storage service to put the file into avatars bucket
+        driver, _ = put_bytes(
+            stored_filename=file_name,
+            content=content,
+            content_type=profile_image.content_type,
+            bucket_name="avatars"
+        )
 
         profile_image_url = f"/uploads/profiles/{file_name}"
         setattr(user, "profile_image_url", profile_image_url)
