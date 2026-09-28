@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import select, delete, func, update, or_, distinct, cast, String
+from sqlalchemy import select, delete, func, update, or_, distinct
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
