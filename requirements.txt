@@ -18,3 +18,4 @@ twilio
 openai
 prometheus-fastapi-instrumentator
 pydantic
+supabase>=2.3.0

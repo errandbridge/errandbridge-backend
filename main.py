@@ -757,22 +757,26 @@ def _should_allow_profile_image_origin(origin: str | None) -> bool:
 
 @app.get("/uploads/profiles/{filename}")
 async def get_public_profile_image(filename: str, request: Request):
-    """Publicly serve pilot profile images.
-
-    Notes:
-    - This endpoint is intentionally limited to the profiles folder, and sanitizes the
-      filename to prevent path traversal.
-    - We do NOT expose general attachments via a static /uploads mount, since many
-      attachments are protected by auth.
-    """
+    """Publicly serve pilot profile images."""
     safe_name = os.path.basename(filename or "")
     if not safe_name or safe_name != filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    cfg = get_storage_config()
+    if cfg.driver in ("s3", "supabase"):
+        try:
+            url = presign_or_stream_key(key=safe_name, filename=safe_name, bucket_name="avatars")
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url)
+        except Exception:
+            raise HTTPException(status_code=404, detail="Not Found")
+
     path = PROFILE_UPLOAD_DIR / safe_name
     if not path.exists():
         raise HTTPException(status_code=404, detail="Not Found")
     media_type, _ = mimetypes.guess_type(str(path))
-    response = FileResponse(
+    from fastapi.responses import FileResponse
+    return FileResponse(
         path=str(path),
         media_type=media_type or "application/octet-stream",
         filename=safe_name,
@@ -2022,12 +2026,16 @@ async def upload_errand_attachment(
         raise HTTPException(status_code=413, detail="File too large (max 10MB)")
 
     # Store file with a random name to avoid collisions/path traversal.
-    # Storage can be local (UPLOAD_DIR) or S3 (recommended for ECS/Fargate).
+    # Storage can be local (UPLOAD_DIR) or S3/Supabase.
     stored_filename = build_stored_filename(file.filename)
+    
+    bucket_name = "errand-runs"
+    
     put_bytes(
         stored_filename=stored_filename,
         content=content,
         content_type=file.content_type,
+        bucket_name=bucket_name
     )
 
     async with AsyncSessionLocal() as session:
@@ -2219,6 +2227,7 @@ async def _store_pilot_employment_attachment(
         stored_filename=stored_filename,
         content=content,
         content_type=file.content_type,
+        bucket_name="verifications"
     )
 
     return stored_filename, size_bytes
@@ -2504,13 +2513,15 @@ async def download_shared_attachment(token: str, payload: ShareDownloadIn):
     )
 
     cfg = get_storage_config()
-    if cfg.driver == "s3":
+    if cfg.driver in ("s3", "supabase"):
         key = s3_key(cfg.s3_prefix, attachment.stored_filename)
+        bucket_name = "errand-runs"
         url = presign_or_stream_key(
             key=key,
             filename=attachment.original_filename,
             content_type=attachment.content_type,
             expires_seconds=120,
+            bucket_name=bucket_name,
         )
         return RedirectResponse(url=url, status_code=302)
 
@@ -2572,13 +2583,15 @@ async def download_shared_attachment_get(token: str, pin: str):
             raise HTTPException(status_code=404, detail="Attachment not found")
 
     cfg = get_storage_config()
-    if cfg.driver == "s3":
+    if cfg.driver in ("s3", "supabase"):
         key = s3_key(cfg.s3_prefix, attachment.stored_filename)
+        bucket_name = "errand-runs"
         url = presign_or_stream_key(
             key=key,
             filename=attachment.original_filename,
             content_type=attachment.content_type,
             expires_seconds=120,
+            bucket_name=bucket_name,
         )
         return RedirectResponse(url=url, status_code=302)
 
@@ -2680,13 +2693,15 @@ async def download_attachment(attachment_id: int, request: Request):
             raise HTTPException(status_code=403, detail="Not allowed")
 
     cfg = get_storage_config()
-    if cfg.driver == "s3":
+    if cfg.driver in ("s3", "supabase"):
         key = s3_key(cfg.s3_prefix, attachment.stored_filename)
+        bucket_name = "errand-runs"
         url = presign_or_stream_key(
             key=key,
             filename=attachment.original_filename,
             content_type=attachment.content_type,
             expires_seconds=120,
+            bucket_name=bucket_name,
         )
         return RedirectResponse(url=url, status_code=302)
 

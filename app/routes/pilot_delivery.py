@@ -75,7 +75,12 @@ from app.pilot_dispatch import (
 from app.pilot_dispatch_policy import get_pilot_dispatch_policy_state
 import hashlib
 import hmac
-from app.services.storage import build_stored_filename, put_bytes
+from app.services.storage import (
+    StorageConfigurationError,
+    StorageWriteError,
+    build_stored_filename,
+    put_bytes,
+)
 import json
 
 import logging
@@ -338,6 +343,7 @@ async def _archive_route_snapshot(
         stored_filename,
         json.dumps(archive_payload).encode("utf-8"),
         content_type="application/json",
+        bucket_name="verifications",
     )
 
     archive_record = {
@@ -1135,11 +1141,18 @@ async def upload_pilot_attachment(
         )
 
     stored_filename = build_stored_filename(file.filename)
-    put_bytes(
-        stored_filename=stored_filename,
-        content=content,
-        content_type=file.content_type,
-    )
+    try:
+        put_bytes(
+            stored_filename=stored_filename,
+            content=content,
+            content_type=file.content_type,
+            bucket_name="avatars",
+        )
+    except (StorageConfigurationError, StorageWriteError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="File uploads are temporarily unavailable. Please contact support.",
+        ) from exc
 
     attachment = ErrandAttachment(
         errand_id=errand_id,
@@ -1193,11 +1206,18 @@ async def upload_pilot_document(
         )
 
     stored_filename = build_stored_filename(file.filename)
-    put_bytes(
-        stored_filename=stored_filename,
-        content=content,
-        content_type=file.content_type,
-    )
+    try:
+        put_bytes(
+            stored_filename=stored_filename,
+            content=content,
+            content_type=file.content_type,
+            bucket_name="verifications",
+        )
+    except (StorageConfigurationError, StorageWriteError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Document uploads are temporarily unavailable. Please contact support.",
+        ) from exc
 
     document = PilotDocument(
         pilot_id=pilot.id,

@@ -248,6 +248,32 @@ Default password:
 
 ## Production deployment best practice
 
+### Document storage
+
+Pilot IDs, licences, insurance documents, and delivery attachments must use
+durable object storage in serverless deployments. Vercel's application
+filesystem is read-only, so local `uploads/` storage is only supported during
+local development.
+
+Configure these production environment variables in the deployment that serves
+`api.errandbridge.com`:
+
+```text
+STORAGE_DRIVER=s3
+S3_BUCKET=<private ErrandBridge document bucket>
+AWS_REGION=us-east-1
+S3_PREFIX=errandbridge-uploads
+AWS_ACCESS_KEY_ID=<IAM credential with access to this bucket>
+AWS_SECRET_ACCESS_KEY=<matching secret>
+```
+
+The IAM principal needs `s3:PutObject`, `s3:GetObject`, and `s3:DeleteObject`
+for `arn:aws:s3:::<bucket>/errandbridge-uploads/*`. Keep the bucket private:
+the API creates short-lived signed download URLs for admins instead of exposing
+identity documents publicly. Redeploy after setting the variables, then upload
+a test document and confirm it appears under **Admin workspace → Proof &
+documents**.
+
 Always build the production backend image for `linux/amd64`.
 
 Recommended flow:
