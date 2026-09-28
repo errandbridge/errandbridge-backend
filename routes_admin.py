@@ -1119,7 +1119,7 @@ async def list_attachments(
     description="Approve or reject an errand verification attachment.",
 )
 async def review_attachment(
-    attachment_id: int,
+    attachment_id: uuid.UUID,
     payload: AdminAttachmentReviewIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -1706,7 +1706,7 @@ async def put_admin_pilot_dispatch_policy(
 
 @router.get("/attachments/{attachment_id}/download")
 async def admin_download_attachment(
-    attachment_id: int,
+    attachment_id: uuid.UUID,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1796,7 +1796,7 @@ async def list_pilot_documents(
 
 @router.get("/pilot-documents/{document_id}/download")
 async def download_pilot_document(
-    document_id: int,
+    document_id: uuid.UUID,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1841,7 +1841,7 @@ async def download_pilot_document(
     description="Approve or reject a submitted driver license or insurance document.",
 )
 async def review_pilot_document(
-    document_id: int,
+    document_id: uuid.UUID,
     payload: AdminPilotDocumentReviewIn,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
@@ -1955,7 +1955,7 @@ async def list_pilot_employment_applications(
 
 @router.get("/pilot-employment/attachments/{attachment_id}/download")
 async def download_pilot_employment_attachment(
-    attachment_id: int,
+    attachment_id: uuid.UUID,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -2298,7 +2298,7 @@ async def list_voice_calls(
 
 @router.get("/calls/{session_id}/events", response_model=list[AdminVoiceCallEventItem], operation_id="listAdminVoiceCallEvents", summary="List telephony session events", description="Audit webhook timeline events for a given voice session.")
 async def list_voice_call_events(
-    session_id: int,
+    session_id: uuid.UUID,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -2344,7 +2344,7 @@ async def list_voice_call_events(
 
 @router.get("/calls/{session_id}/transcript/download")
 async def download_voice_transcript(
-    session_id: int,
+    session_id: uuid.UUID,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
