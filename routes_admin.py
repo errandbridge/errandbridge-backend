@@ -227,18 +227,18 @@ class AdminDeleteUserOut(BaseModel):
 
 
 class AdminBulkDeleteUsersIn(BaseModel):
-    user_ids: list[int]
+    user_ids: list[uuid.UUID]
 
 
 class AdminBulkDeleteUsersOut(BaseModel):
     requested: int
     deleted: int
-    deleted_user_ids: list[int] = []
+    deleted_user_ids: list[uuid.UUID] = []
     skipped_self: bool = False
     skipped_admins: list[str] = []
-    skipped_user_ids: list[int] = []
-    failed_user_ids: list[int] = []
-    not_found: list[int] = []
+    skipped_user_ids: list[uuid.UUID] = []
+    failed_user_ids: list[uuid.UUID] = []
+    not_found: list[uuid.UUID] = []
 
 
 async def _cascade_delete_user_data(
@@ -342,10 +342,10 @@ async def _cascade_delete_user_data(
                 )
             )
         ).all()
-        attachment_ids: list[int] = []
+        attachment_ids: list[uuid.UUID] = []
         for attachment_id, stored_name in attachment_rows:
             if attachment_id is not None:
-                attachment_ids.append(int(attachment_id))
+                attachment_ids.append(attachment_id)
             if stored_name:
                 stored_filenames.append(stored_name)
 
@@ -650,7 +650,7 @@ async def delete_user(
     target_email = target.email
 
     try:
-        cascade_result = await _cascade_delete_user_data(db, int(user_id))
+        cascade_result = await _cascade_delete_user_data(db, user_id)
         await db.delete(target)
         await db.commit()
     except IntegrityError as e:
@@ -712,19 +712,7 @@ async def bulk_delete_users(
 
     admin = await _require_admin(db, authorization)
 
-    raw_ids = payload.user_ids or []
-    # Normalize + de-duplicate
-    requested_ids: list[int] = []
-    seen: set[int] = set()
-    for v in raw_ids:
-        try:
-            i = int(v)
-        except Exception:
-            continue
-        if i <= 0 or i in seen:
-            continue
-        seen.add(i)
-        requested_ids.append(i)
+    requested_ids = list(dict.fromkeys(payload.user_ids or []))
 
     if not requested_ids:
         return AdminBulkDeleteUsersOut(requested=0, deleted=0)
@@ -732,7 +720,7 @@ async def bulk_delete_users(
     # Fetch targets
     res = await db.execute(select(User).where(User.id.in_(requested_ids)))
     targets = res.scalars().all()
-    targets_by_id = {int(u.id): u for u in targets}
+    targets_by_id = {u.id: u for u in targets}
 
     not_found = [i for i in requested_ids if i not in targets_by_id]
 
@@ -741,26 +729,26 @@ async def bulk_delete_users(
     skipped_self = False
     can_delete_admins = _can_delete_other_admin_accounts(admin)
 
-    skipped_user_ids: list[int] = []
+    skipped_user_ids: list[uuid.UUID] = []
 
-    deletable_ids: list[int] = []
+    deletable_ids: list[uuid.UUID] = []
     for i in requested_ids:
         u = targets_by_id.get(i)
         if not u:
             continue
-        if int(i) == int(admin.id):
+        if i == admin.id:
             skipped_self = True
-            skipped_user_ids.append(int(i))
+            skipped_user_ids.append(i)
             continue
         email_norm = (u.email or "").strip().lower()
         if email_norm and email_norm in admin_email_set and not can_delete_admins:
             skipped_admin_emails.append(email_norm)
-            skipped_user_ids.append(int(i))
+            skipped_user_ids.append(i)
             continue
         deletable_ids.append(i)
 
-    deleted_user_ids: list[int] = []
-    failed_user_ids: list[int] = []
+    deleted_user_ids: list[uuid.UUID] = []
+    failed_user_ids: list[uuid.UUID] = []
     stored_filenames_to_delete: set[str] = set()
     if deletable_ids:
         # Delete one-by-one with savepoints so a single FK/integrity failure does not
@@ -768,29 +756,27 @@ async def bulk_delete_users(
         for target_id in deletable_ids:
             try:
                 async with db.begin_nested():
-                    user = await db.get(User, int(target_id))
+                    user = await db.get(User, target_id)
                     if not user:
                         continue
-                    cascade_result = await _cascade_delete_user_data(db, int(target_id))
+                    cascade_result = await _cascade_delete_user_data(db, target_id)
                     await db.delete(user)
-                deleted_user_ids.append(int(target_id))
+                deleted_user_ids.append(target_id)
                 for stored_name in cascade_result.get("stored_filenames", []):
                     if stored_name:
                         stored_filenames_to_delete.add(stored_name)
             except IntegrityError:
-                await db.rollback()
                 # Keep going; one problematic record shouldn't block the rest.
                 print(
                     f"[admin] user_id={admin.id} action=bulk_delete_user_failed target_user_id={target_id} reason=integrity_error"
                 )
-                failed_user_ids.append(int(target_id))
+                failed_user_ids.append(target_id)
                 continue
             except Exception:
-                await db.rollback()
                 print(
                     f"[admin] user_id={admin.id} action=bulk_delete_user_failed target_user_id={target_id} reason=exception"
                 )
-                failed_user_ids.append(int(target_id))
+                failed_user_ids.append(target_id)
                 continue
 
         if deleted_user_ids:
@@ -1638,6 +1624,31 @@ async def update_pilot_dispatch_status(
     }
 
 
+class AdminPilotVerificationIn(BaseModel):
+    is_verified: bool
+
+
+@router.post("/pilots/{pilot_id}/verify")
+async def update_pilot_verification(
+    pilot_id: uuid.UUID,
+    payload: AdminPilotVerificationIn,
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_admin(db, authorization)
+    pilot = await db.get(User, pilot_id)
+    if not pilot or not pilot.is_pilot:
+        raise HTTPException(status_code=404, detail="Pilot not found")
+    pilot.id_verification_status = "verified" if payload.is_verified else "pending"
+    await db.commit()
+    await db.refresh(pilot)
+    return {
+        "is_verified": pilot.id_verification_status == "verified",
+        "verification_status": pilot.id_verification_status,
+        "id_verification_status": pilot.id_verification_status,
+    }
+
+
 @router.get("/pilot-dispatch-policy", response_model=AdminPilotDispatchPolicyOut)
 async def get_admin_pilot_dispatch_policy(
     authorization: Optional[str] = Header(default=None),
@@ -1687,7 +1698,7 @@ async def put_admin_pilot_dispatch_policy(
             else None
         ),
         open_pool_radius_miles=payload.open_pool_radius_miles,
-        actor_id=int(admin.id),
+        actor_id=admin.id,
     )
     await db.commit()
     return AdminPilotDispatchPolicyOut(**state)
@@ -2871,6 +2882,9 @@ async def list_all_customers(
             "country": u.country,
             "is_email_verified": bool(u.is_email_verified),
             "is_pilot": bool(getattr(u, "is_pilot", False)),
+            "is_verified": u.id_verification_status == "verified",
+            "verification_status": u.id_verification_status,
+            "id_verification_status": u.id_verification_status,
             "rating": (
                 float(u.rating) if getattr(u, "rating", None) is not None else None
             ),
@@ -2975,6 +2989,7 @@ async def get_unverified_customers(
     description="Permanently remove accounts that have never confirmed email verification.",
 )
 async def purge_unverified_customers(
+    request: Request,
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -2983,12 +2998,14 @@ async def purge_unverified_customers(
 
     result = await db.execute(select(User).where(~User.is_email_verified))
     users = result.scalars().all()
-    deleted_count = len(users)
-    deleted_emails = [user.email for user in users if user.email]
-
-    if deleted_count:
-        await db.execute(delete(User).where(~User.is_email_verified))
-        await db.commit()
+    result = await bulk_delete_users(
+        payload=AdminBulkDeleteUsersIn(user_ids=[user.id for user in users]),
+        request=request,
+        db=db,
+    )
+    deleted_ids = set(result.deleted_user_ids)
+    deleted_count = len(deleted_ids)
+    deleted_emails = [user.email for user in users if user.id in deleted_ids and user.email]
 
     print(
         f"[admin] user_id={admin.id} action=purge_unverified_customers count={deleted_count}"
@@ -2997,4 +3014,7 @@ async def purge_unverified_customers(
     return {
         "deleted_count": deleted_count,
         "deleted_emails": deleted_emails,
+        "deleted_user_ids": result.deleted_user_ids,
+        "failed_count": len(result.failed_user_ids),
+        "skipped_count": len(result.skipped_user_ids),
     }

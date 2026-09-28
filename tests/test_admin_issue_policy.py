@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
@@ -15,6 +16,9 @@ class ScalarListResult:
 
     def scalars(self):
         return self
+
+    def first(self):
+        return self._values[0] if self._values else None
 
     def all(self):
         return list(self._values)
@@ -45,6 +49,10 @@ class FakePolicyDB:
             return result
         return None
 
+    async def execute(self, query):
+        value = await self.get(None, None)
+        return ScalarListResult([value] if value else [])
+
     def add(self, value):
         self.added.append(value)
 
@@ -58,17 +66,17 @@ class FakePolicyDB:
 
 class DeleteUserDB:
     def __init__(self, users):
-        self.users = {int(user.id): user for user in users}
+        self.users = {user.id: user for user in users}
         self.deleted_ids = []
         self.commit_calls = 0
         self.begin_nested_calls = 0
 
     async def get(self, _model, user_id):
-        return self.users.get(int(user_id))
+        return self.users.get(user_id)
 
     async def delete(self, user):
-        self.deleted_ids.append(int(user.id))
-        self.users.pop(int(user.id), None)
+        self.deleted_ids.append(user.id)
+        self.users.pop(user.id, None)
 
     async def commit(self):
         self.commit_calls += 1
@@ -104,9 +112,9 @@ class BulkDeleteDB(DeleteUserDB):
     async def execute(self, query):
         requested_ids = query._where_criteria[0].right.value
         values = [
-            self.users[int(user_id)]
+            self.users[user_id]
             for user_id in requested_ids
-            if int(user_id) in self.users
+            if user_id in self.users
         ]
         return self._ScalarResult(values)
 
@@ -213,16 +221,16 @@ async def test_update_pilot_dispatch_policy_sets_updated_at(monkeypatch):
         db,
         show_all_jobs_to_pilots=True,
         open_pool_radius_miles=15,
-        actor_id=55,
+        actor_id=UUID(int=55),
     )
 
     assert existing_policy.show_all_jobs_to_pilots is True
     assert existing_policy.open_pool_radius_miles == 15
-    assert existing_policy.updated_by_user_id == 55
+    assert existing_policy.updated_by_user_id == UUID(int=55)
     assert existing_policy.updated_at is not None
     assert payload["show_all_jobs_to_pilots"] is True
     assert payload["open_pool_radius_miles"] == 15
-    assert payload["updated_by_user_id"] == 55
+    assert payload["updated_by_user_id"] == UUID(int=55)
     assert payload["updated_at"] == existing_policy.updated_at
 
 
@@ -253,8 +261,8 @@ async def test_get_or_create_pilot_dispatch_policy_ensures_storage_before_query(
 
 @pytest.mark.asyncio
 async def test_standard_admin_cannot_delete_another_admin(monkeypatch):
-    admin = SimpleNamespace(id=10, email="admin@errandbridge.com")
-    target = SimpleNamespace(id=27, email="ade@errandbridge.com")
+    admin = SimpleNamespace(id=UUID(int=10), email="admin@errandbridge.com")
+    target = SimpleNamespace(id=UUID(int=27), email="ade@errandbridge.com")
     db = DeleteUserDB([target])
     request = SimpleNamespace(headers={})
 
@@ -280,7 +288,7 @@ async def test_standard_admin_cannot_delete_another_admin(monkeypatch):
     )
 
     with pytest.raises(HTTPException) as excinfo:
-        await routes_admin.delete_user(user_id=27, request=request, db=db)
+        await routes_admin.delete_user(user_id=UUID(int=27), request=request, db=db)
 
     assert excinfo.value.status_code == 403
     assert "elevated admins" in excinfo.value.detail
@@ -289,8 +297,8 @@ async def test_standard_admin_cannot_delete_another_admin(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_elevated_admin_can_delete_another_admin(monkeypatch):
-    admin = SimpleNamespace(id=27, email="ade@errandbridge.com")
-    target = SimpleNamespace(id=10, email="admin@errandbridge.com")
+    admin = SimpleNamespace(id=UUID(int=27), email="ade@errandbridge.com")
+    target = SimpleNamespace(id=UUID(int=10), email="admin@errandbridge.com")
     db = DeleteUserDB([target])
     request = SimpleNamespace(headers={})
 
@@ -315,18 +323,18 @@ async def test_elevated_admin_can_delete_another_admin(monkeypatch):
         lambda email: str(email).lower() == "ade@errandbridge.com",
     )
 
-    payload = await routes_admin.delete_user(user_id=10, request=request, db=db)
+    payload = await routes_admin.delete_user(user_id=UUID(int=10), request=request, db=db)
 
     assert payload.deleted is True
-    assert db.deleted_ids == [10]
+    assert db.deleted_ids == [UUID(int=10)]
     assert db.commit_calls == 1
 
 
 @pytest.mark.asyncio
 async def test_bulk_delete_skips_admins_for_standard_admin(monkeypatch):
-    admin = SimpleNamespace(id=10, email="admin@errandbridge.com")
-    target_admin = SimpleNamespace(id=27, email="ade@errandbridge.com")
-    target_user = SimpleNamespace(id=33, email="customer@example.com")
+    admin = SimpleNamespace(id=UUID(int=10), email="admin@errandbridge.com")
+    target_admin = SimpleNamespace(id=UUID(int=27), email="ade@errandbridge.com")
+    target_user = SimpleNamespace(id=UUID(int=33), email="customer@example.com")
     db = BulkDeleteDB([target_admin, target_user])
     request = SimpleNamespace(headers={})
 
@@ -352,25 +360,25 @@ async def test_bulk_delete_skips_admins_for_standard_admin(monkeypatch):
     )
 
     payload = await routes_admin.bulk_delete_users(
-        payload=routes_admin.AdminBulkDeleteUsersIn(user_ids=[27, 33]),
+        payload=routes_admin.AdminBulkDeleteUsersIn(user_ids=[UUID(int=27), UUID(int=33)]),
         request=request,
         db=db,
     )
 
     assert payload.deleted == 1
-    assert payload.deleted_user_ids == [33]
+    assert payload.deleted_user_ids == [UUID(int=33)]
     assert payload.skipped_admins == ["ade@errandbridge.com"]
-    assert payload.skipped_user_ids == [27]
-    assert db.deleted_ids == [33]
+    assert payload.skipped_user_ids == [UUID(int=27)]
+    assert db.deleted_ids == [UUID(int=33)]
     assert db.begin_nested_calls == 1
     assert db.commit_calls == 1
 
 
 @pytest.mark.asyncio
 async def test_bulk_delete_allows_admin_targets_for_elevated_admin(monkeypatch):
-    admin = SimpleNamespace(id=27, email="ade@errandbridge.com")
-    target_admin = SimpleNamespace(id=10, email="admin@errandbridge.com")
-    target_user = SimpleNamespace(id=33, email="customer@example.com")
+    admin = SimpleNamespace(id=UUID(int=27), email="ade@errandbridge.com")
+    target_admin = SimpleNamespace(id=UUID(int=10), email="admin@errandbridge.com")
+    target_user = SimpleNamespace(id=UUID(int=33), email="customer@example.com")
     db = BulkDeleteDB([target_admin, target_user])
     request = SimpleNamespace(headers={})
 
@@ -396,15 +404,15 @@ async def test_bulk_delete_allows_admin_targets_for_elevated_admin(monkeypatch):
     )
 
     payload = await routes_admin.bulk_delete_users(
-        payload=routes_admin.AdminBulkDeleteUsersIn(user_ids=[10, 33]),
+        payload=routes_admin.AdminBulkDeleteUsersIn(user_ids=[UUID(int=10), UUID(int=33)]),
         request=request,
         db=db,
     )
 
     assert payload.deleted == 2
-    assert payload.deleted_user_ids == [10, 33]
+    assert payload.deleted_user_ids == [UUID(int=10), UUID(int=33)]
     assert payload.skipped_admins == []
     assert payload.skipped_user_ids == []
-    assert db.deleted_ids == [10, 33]
+    assert db.deleted_ids == [UUID(int=10), UUID(int=33)]
     assert db.begin_nested_calls == 2
     assert db.commit_calls == 1

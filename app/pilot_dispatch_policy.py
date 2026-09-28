@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
+from sqlalchemy import select
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +13,7 @@ from models import PilotDispatchPolicy
 DEFAULT_SHOW_ALL_JOBS_TO_PILOTS = False
 DEFAULT_OPEN_POOL_RADIUS_MILES = 5
 ALLOWED_OPEN_POOL_RADIUS_MILES = (5, 10, 15, 20)
-PILOT_DISPATCH_POLICY_SINGLETON_ID = 1
+PILOT_DISPATCH_POLICY_SINGLETON_ID = UUID("00000000-0000-0000-0000-000000000001")
 _pilot_dispatch_policy_storage_ready = False
 
 
@@ -67,7 +69,9 @@ async def _ensure_pilot_dispatch_policy_storage() -> None:
 
 
 async def _load_pilot_dispatch_policy(db: AsyncSession) -> PilotDispatchPolicy | None:
-    return await db.get(PilotDispatchPolicy, PILOT_DISPATCH_POLICY_SINGLETON_ID)
+    # Reuse the existing row: the UUID migration may have assigned it a random ID.
+    result = await db.execute(select(PilotDispatchPolicy).order_by(PilotDispatchPolicy.created_at, PilotDispatchPolicy.id).limit(1))
+    return result.scalars().first()
 
 
 async def get_or_create_pilot_dispatch_policy(db: AsyncSession) -> PilotDispatchPolicy:
@@ -101,7 +105,7 @@ async def update_pilot_dispatch_policy(
     *,
     show_all_jobs_to_pilots: Any | None = None,
     open_pool_radius_miles: Any | None = None,
-    actor_id: int | None = None,
+    actor_id: UUID | None = None,
 ) -> dict[str, Any]:
     policy = await get_or_create_pilot_dispatch_policy(db)
 
@@ -114,7 +118,7 @@ async def update_pilot_dispatch_policy(
             open_pool_radius_miles
         )
     if actor_id is not None:
-        policy.updated_by_user_id = int(actor_id)
+        policy.updated_by_user_id = actor_id
     policy.updated_at = datetime.now(timezone.utc)
 
     await db.flush()
