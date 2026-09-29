@@ -2055,6 +2055,14 @@ async def upload_errand_attachment(
             size_bytes=size_bytes,
         )
         session.add(attachment)
+        await session.flush()  # populate attachment.id before using it
+        await session.refresh(attachment)
+
+        # Also persist the proof URL on the errand so the client can load it
+        # in the Confirm Delivery modal via activeErrand.photo_url.
+        download_url = f"/attachments/{attachment.id}/download"
+        model.photo_url = download_url
+        session.add(model)
         await session.commit()
         await session.refresh(attachment)
 
@@ -2661,7 +2669,7 @@ async def public_errand_summary(reference_number: str):
 
 
 @app.get("/attachments/{attachment_id}")
-async def download_attachment(attachment_id: int, request: Request):
+async def download_attachment(attachment_id: uuid.UUID, request: Request):
     """Download an attachment.
 
     Auth: requires Bearer token and ownership (errand owner).
@@ -2717,7 +2725,7 @@ async def download_attachment(attachment_id: int, request: Request):
 
 
 @app.get("/attachments/{attachment_id}/download")
-async def download_attachment_alias(attachment_id: int, request: Request):
+async def download_attachment_alias(attachment_id: uuid.UUID, request: Request):
     # Compatibility alias for older clients that expect a "/download" suffix.
     return await download_attachment(attachment_id, request)
 
