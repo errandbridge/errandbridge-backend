@@ -81,12 +81,12 @@ async def test_start_delivery_records_pilot_started_event(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_complete_delivery_records_pilot_completed_event(monkeypatch):
+async def test_complete_delivery_submits_for_customer_confirmation(monkeypatch):
     pilot = SimpleNamespace(id=77, email="pilot@example.com", is_pilot=True)
     errand = SimpleNamespace(
         id=56,
         pilot_id=77,
-        status="in_progress",
+        status="proof_submitted",
         pickup_location="Ikeja",
         dropoff_location="Yaba",
         started_at=datetime.now(timezone.utc),
@@ -117,7 +117,7 @@ async def test_complete_delivery_records_pilot_completed_event(monkeypatch):
     )
 
     assert payload["success"] is True
-    assert errand.status == "completed"
+    assert errand.status == "delivered"
     assert isinstance(errand.completed_at, datetime)
     assert errand.completed_at.tzinfo == timezone.utc
 
@@ -126,7 +126,7 @@ async def test_complete_delivery_records_pilot_completed_event(monkeypatch):
     assert db.refresh_calls == 1
 
     event_types = [getattr(e, "event_type", None) for e in db.added]
-    assert "pilot_completed" in event_types
+    assert "pilot_submitted_completion" in event_types
 
 
 @pytest.mark.asyncio
@@ -167,6 +167,7 @@ async def test_start_and_complete_delivery_with_uuid_ids(monkeypatch):
     assert isinstance(errand.started_at, datetime)
 
     # 2. Complete delivery with UUIDs
+    errand.status = "proof_submitted"
     complete_payload = await pilot_delivery.complete_delivery(
         errand_id=errand_uuid,
         notes="UUID test complete",
@@ -174,5 +175,5 @@ async def test_start_and_complete_delivery_with_uuid_ids(monkeypatch):
         db=db,
     )
     assert complete_payload["success"] is True
-    assert errand.status == "completed"
+    assert errand.status == "delivered"
     assert isinstance(errand.completed_at, datetime)

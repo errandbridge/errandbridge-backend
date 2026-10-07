@@ -24,15 +24,18 @@ class RowsResult:
 
 
 class FakeDB:
-    def __init__(self, *, scalar_values=None, rows=None):
+    def __init__(self, *, scalar_values=None, rows=None, attachment_rows=None):
         self.scalar_values = list(scalar_values or [])
         self.rows = rows if rows is not None else []
+        self.attachment_rows = attachment_rows if attachment_rows is not None else []
         self.queries = []
 
     async def execute(self, query):
         self.queries.append(query)
         if self.scalar_values:
             return ScalarResult(self.scalar_values.pop(0))
+        if "errand_attachments" in str(query):
+            return RowsResult(self.attachment_rows)
         return RowsResult(self.rows)
 
     async def commit(self):
@@ -131,7 +134,49 @@ async def test_list_pilot_jobs_exposes_canonical_payment_amount(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_list_available_jobs_filters_open_pool_by_city_and_5_miles_but_keeps_dedicated_assignments(
+async def test_list_pilot_jobs_exposes_approved_proof_status(monkeypatch):
+    errand_id = uuid.uuid4()
+
+    async def fake_current_user(_authorization, _db):
+        return SimpleNamespace(id=77)
+
+    monkeypatch.setattr(pilot_delivery, "_get_current_user", fake_current_user)
+    errand = SimpleNamespace(
+        id=errand_id,
+        reference_number="EB-PROOF",
+        title="Document run",
+        description=None,
+        status="delivered",
+        started_at=None,
+        pickup_location="Ikeja",
+        dropoff_location="Alapere",
+        sensitivity=None,
+        created_at=None,
+        completed_at=None,
+        note=None,
+        amount=0,
+        payment_amount_ngn_major=None,
+        distance_km=None,
+        customer_rating=None,
+        pickup_time_slot_start=None,
+        pickup_time_slot_end=None,
+        pickup_time_slot_date=None,
+    )
+    db = FakeDB(
+        rows=[(errand, SimpleNamespace(first_name="Ade", last_name="Johnson"))],
+        attachment_rows=[(errand_id, "approved")],
+    )
+
+    payload = await pilot_delivery.list_pilot_jobs(
+        status="active", authorization="Bearer token", db=db
+    )
+
+    assert payload["errands"][0]["proof_review_status"] == "approved"
+    assert payload["errands"][0]["proofReviewStatus"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_list_available_jobs_shows_all_pool_jobs_but_only_matching_and_dedicated_jobs_are_actionable(
     monkeypatch,
 ):
     async def fake_current_user(_authorization, _db):
@@ -246,8 +291,22 @@ async def test_list_available_jobs_filters_open_pool_by_city_and_5_miles_but_kee
         db=db,
     )
 
-    assert [errand["id"] for errand in payload["errands"]] == [1, 4]
-    assert payload["total"] == 2
+    assert [errand["id"] for errand in payload["errands"]] == [1, 2, 3, 4]
+    assert payload["total"] == 4
+    assert payload["errands"][0]["matches_dispatch_policy"] is True
+    assert payload["errands"][0]["acceptance_block_reason"] is None
+    assert payload["errands"][1]["matches_dispatch_policy"] is False
+    assert (
+        payload["errands"][1]["acceptance_block_reason"]
+        == "Errand is outside your service area"
+    )
+    assert payload["errands"][2]["matches_dispatch_policy"] is False
+    assert (
+        payload["errands"][2]["acceptance_block_reason"]
+        == "Errand is outside the 5 mile radius"
+    )
+    assert payload["errands"][3]["matches_dispatch_policy"] is True
+    assert payload["errands"][3]["acceptance_block_reason"] is None
 
 
 @pytest.mark.asyncio

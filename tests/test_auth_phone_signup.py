@@ -85,14 +85,17 @@ async def test_rest_login_accepts_phone_identifier(monkeypatch):
     monkeypatch.setattr(
         routes_auth, "_get_user_by_identifier", fake_get_user_by_identifier
     )
-    monkeypatch.setattr(routes_auth, "_check_otp", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(routes_auth, "verify_password", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         routes_auth, "create_access_token", lambda user_id: f"token-{user_id}"
     )
+    monkeypatch.setattr(
+        routes_auth, "create_refresh_token", lambda user_id: f"refresh-{user_id}"
+    )
     monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
 
-    response = await routes_auth.login(
-        routes_auth.LoginRequest(
+    response = await routes_auth.auth_direct_login(
+        routes_auth.DirectLoginRequest(
             email="+1 (555) 555-1234",
             password="password123",
             role="client",

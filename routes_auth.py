@@ -2535,6 +2535,7 @@ async def password_reset_confirm(
         raise
 
     user.password_hash = hash_password(payload.new_password)
+    user.must_change_password = False
     # If the user can receive/verify OTP at this email, we can safely mark the email as verified.
     if not user.is_email_verified:
         user.is_email_verified = True
@@ -2628,51 +2629,44 @@ class DirectLoginRequest(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     otp_code: Optional[str] = None
+    role: Optional[str] = "client"
 
 
 @router.post("/login", response_model=AuthResponse, operation_id="authLogin")
 @login_router.post("", response_model=AuthResponse, operation_id="loginPost")
 async def auth_direct_login(payload: DirectLoginRequest, db: AsyncSession = Depends(get_db)):
-    email = (payload.email or payload.username or "").strip().lower()
-    if not email:
+    identifier = (payload.email or payload.username or "").strip()
+    if not identifier:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email or username is required")
+    role = _normalize_role(payload.role)
 
     if payload.password:
-        res = await db.execute(auth_safe_user_by_email_query(email))
-        user = res.scalars().first()
+        user = await _get_user_by_identifier(db, identifier)
         if user and user.password_hash:
             try:
-                if verify_password(payload.password, user.password_hash):
-                    token = create_access_token(user.id)
-                    refresh_token = create_refresh_token(user.id)
-                    is_admin = bool(
-                        user.email and user.email.strip().lower() in admin_emails()
+                password_valid = verify_password(payload.password, user.password_hash)
+            except Exception as exc:
+                print(
+                    f"[AUTH] Password verification error: {type(exc).__name__}",
+                    flush=True,
+                )
+                password_valid = False
+            if password_valid:
+                if role == "pilot" and not user.is_pilot:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="This account is not registered as a pilot",
                     )
-                    user_uuid_str = str(user.user_uuid) if getattr(user, "user_uuid", None) else f"00000000-0000-0000-0000-{int(user.id):012d}"
-                    return AuthResponse(
-                        access_token=token,
-                        refresh_token=refresh_token,
-                        token_type="bearer",
-                        user_id=user.id,
-                        user_uuid=user_uuid_str,
-                        email=user.email,
-                        first_name=user.first_name,
-                        last_name=user.last_name,
-                        phone=user.phone,
-                        is_email_verified=bool(user.is_email_verified),
-                        is_admin=is_admin,
-                        must_change_password=bool(getattr(user, "must_change_password", False)),
+                if not is_email_confirmation_disabled() and not user.is_email_verified:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Email not verified",
                     )
-            except Exception:
-                pass
-        try:
-            otp_payload = OtpVerifyRequest(email=email, otp_code=payload.password)
-            return await otp_verify(payload=otp_payload, db=db)
-        except Exception:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+                return _build_auth_response(user)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     if payload.otp_code:
-        otp_payload = OtpVerifyRequest(email=email, otp_code=payload.otp_code)
+        otp_payload = OtpVerifyRequest(email=identifier, otp_code=payload.otp_code, role=role)
         return await otp_verify(payload=otp_payload, db=db)
 
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password or OTP code required")

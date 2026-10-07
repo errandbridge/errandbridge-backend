@@ -177,6 +177,18 @@ def get_local_path_from_attachment(stored_filename: str, upload_dir: str, bucket
     return os.path.join(upload_dir, stored_filename)
 
 
+def resolve_local_attachment_path(
+    stored_filename: str, upload_dir: str, bucket_name: Optional[str] = None
+) -> str:
+    """Resolve current bucketed storage while retaining legacy root-file support."""
+    bucket_path = get_local_path_from_attachment(
+        stored_filename, upload_dir, bucket_name=bucket_name
+    )
+    if os.path.exists(bucket_path) or not bucket_name:
+        return bucket_path
+    return get_local_path_from_attachment(stored_filename, upload_dir)
+
+
 def presign_or_stream_key(
     key: str,
     filename: str,

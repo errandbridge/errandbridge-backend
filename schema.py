@@ -238,8 +238,10 @@ def build_referral_code_for_user(user: User | None) -> str | None:
     ]
     letters = "".join(ch for part in seed_parts for ch in part.upper() if ch.isalpha())
     prefix = (letters[:4] or "EBCL").ljust(4, "X")
-    checksum = (str(user.id) * 7919) % 10000
-    return f"{prefix}{str(user.id)[:8].upper()}{checksum:04d}"
+    identifier = str(user.id)
+    checksum_seed = int(identifier.replace("-", "")[:8], 16)
+    checksum = (checksum_seed * 7919) % 10000
+    return f"{prefix}{identifier[:8].upper()}{checksum:04d}"
 
 
 def build_client_lifecycle_snapshot(
@@ -304,14 +306,14 @@ def build_client_lifecycle_snapshot(
     latest_unused_expiry = REFERRAL_CAMPAIGN_END if unused_referral_promos else None
 
     return {
-        "userId": str(user.id) if is_logged_in else None,
+        "userId": user.id if is_logged_in else None,
         "isLoggedIn": is_logged_in,
         "hasSubmittedRequest": bool(errands),
         "isReturningClient": len(errands) > 0,
         "completedErrandCount": len(completed_errands),
-        "pendingReviewErrandIds": [str(errand.id) for errand in pending_review_errands],
+        "pendingReviewErrandIds": [errand.id for errand in pending_review_errands],
         "lastCompletedErrandId": (
-            int(completed_errands[0].id) if completed_errands else None
+            completed_errands[0].id if completed_errands else None
         ),
         "hasSubmittedAnyReview": submitted_review_count > 0,
         "hasPendingReview": bool(pending_review_errands),
@@ -425,7 +427,7 @@ def build_assigned_pilot_trust_snapshot(
         )
 
     return {
-        "pilotId": str(pilot.id),
+        "pilotId": pilot.id,
         "displayName": _build_user_display_name(pilot),
         "firstName": getattr(pilot, "first_name", None),
         "lastName": getattr(pilot, "last_name", None),
@@ -450,7 +452,7 @@ class AssignedPilotTrustReview:
 
 @strawberry.type
 class AssignedPilotTrust:
-    pilotId: int
+    pilotId: uuid.UUID
     displayName: str
     firstName: Optional[str]
     lastName: Optional[str]
@@ -808,13 +810,13 @@ class UserProfile:
 
 @strawberry.type
 class ClientLifecycle:
-    userId: int | None
+    userId: uuid.UUID | None
     isLoggedIn: bool
     hasSubmittedRequest: bool
     isReturningClient: bool
     completedErrandCount: int
-    pendingReviewErrandIds: list[int]
-    lastCompletedErrandId: int | None
+    pendingReviewErrandIds: list[uuid.UUID]
+    lastCompletedErrandId: uuid.UUID | None
     hasSubmittedAnyReview: bool
     hasPendingReview: bool
     referralCode: str | None
@@ -1928,10 +1930,10 @@ class Mutation:
                 "Only the customer or assigned admin can mark this errand as done"
             )
 
-        # Check status is 'assigned'
-        if _normalize_status(errand.status) != "assigned":
+        # Final confirmation is only valid after the pilot submits the errand.
+        if _normalize_status(errand.status) != "delivered":
             raise ValueError(
-                f"Can only mark 'assigned' errands as done, current: {errand.status}"
+                f"Can only confirm delivered errands as completed, current: {errand.status}"
             )
 
         # Change status to 'completed'
@@ -1973,10 +1975,7 @@ class Mutation:
 
     @strawberry.mutation
     async def confirm_errand_received(self, info: Info, errand_id: uuid.UUID) -> Errand:
-        """Customer confirms they have received the completed errand/report.
-
-        This transitions the errand from 'completed' -> 'accepted'.
-        """
+        """Customer archives an already completed errand without changing its status."""
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
         if not current_user_id:
@@ -1998,15 +1997,14 @@ class Mutation:
             )
 
         old_status = errand.status
-        errand.status = "accepted"
 
         await _safe_record_errand_event(
             session=session,
             errand_id=errand.id,
-            event_type="accepted",
+            event_type="customer_archived",
             old_status=old_status,
-            new_status="accepted",
-            note=f"Customer confirmed receipt (user_id={current_user_id})",
+            new_status=old_status,
+            note=f"Customer archived completed errand (user_id={current_user_id})",
             user_id=current_user_id,
         )
 

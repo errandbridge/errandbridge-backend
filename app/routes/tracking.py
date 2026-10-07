@@ -53,7 +53,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tracking", tags=["pilot-tracking"])
 
-ACTIVE_TRACKING_STATUSES = {"in_progress", "picked_up", "delivered"}
+ACTIVE_TRACKING_STATUSES = {
+    "in_progress",
+    "pickup_started",
+    "arrived_at_pickup",
+    "picked_up",
+    "dropoff_started",
+    "arrived_at_dropoff",
+    "proof_submitted",
+}
 HISTORY_TRACKING_STATUSES = {"completed", *ACTIVE_TRACKING_STATUSES}
 STALL_MINUTES = int(os.getenv("PILOT_STALL_MINUTES", "5"))
 STALL_DISTANCE_METERS = float(os.getenv("PILOT_STALL_DISTANCE_METERS", "30"))
@@ -417,16 +425,19 @@ async def update_location(
     status_updated = False
     previous_status = errand.status
 
+    if errand.status == "accepted":
+        errand.status = "in_progress"
+        status_updated = True
+    elif errand.status not in ACTIVE_TRACKING_STATUSES:
+        observe_tracking_update(result="rejected", reason="invalid_status")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Live tracking cannot start while the errand status is {errand.status}",
+        )
+
     if not errand.started_at:
         errand.started_at = _utc_now()
         started_now = True
-
-    if errand.status not in ACTIVE_TRACKING_STATUSES and errand.status not in {
-        "completed",
-        "cancelled",
-    }:
-        errand.status = "in_progress"
-        status_updated = True
 
     if started_now or status_updated:
         db.add(errand)

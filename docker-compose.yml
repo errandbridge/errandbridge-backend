@@ -1,3 +1,5 @@
+name: errandbridge-developer
+
 services:
   api:
     build: .
@@ -18,12 +20,18 @@ services:
       - "8001:8000"
     depends_on:
       - db
-      # (Mailpit is optional and runs only when profile 'dev-mail' is enabled)
+      - mailpit
     environment:
       - PROMETHEUS_MULTIPROC_DIR=/tmp
       - ADMIN_EMAILS=admin@errandbridge.com,oye@errandbridge.com,wole@errandbridge.com,ajoke@errandbridge.com,ade@errandbridge.com,privacy@errandbridge.com,dataprotection@errandbridge.com
       - ELEVATED_ADMIN_EMAILS=ade@errandbridge.com
       - DISABLE_EMAIL_CONFIRMATION=true
+      - SMTP_HOST=${SMTP_HOST:-mailpit}
+      - SMTP_PORT=${SMTP_PORT:-1025}
+      - SMTP_FROM=${SMTP_FROM:-no-reply@errandbridge.local}
+      - SMTP_FROM_NAME=${SMTP_FROM_NAME:-ErrandBridge}
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-false}
+      - SMTP_AUTH_MODE=${SMTP_AUTH_MODE:-none}
 
       # Optional smoke-test OTP overrides (non-production only):
       # - ALLOW_SMOKE_OTPS=true
@@ -93,12 +101,10 @@ services:
     depends_on:
       - prometheus
 
-  # Optional local SMTP server for development/testing.
-  # Use this to validate OTP emails without real SMTP credentials.
+  # Local SMTP inbox for development/testing.
   # Web UI: http://localhost:8025
   mailpit:
     image: axllent/mailpit:latest
-    profiles: ["dev-mail"]
     ports:
       - "8025:8025" # web UI
       - "1025:1025" # SMTP

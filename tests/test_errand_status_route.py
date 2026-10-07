@@ -56,14 +56,32 @@ def status_route(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", ["arrived_at_pickup", "picked_up", "arrived_at_dropoff"])
-async def test_status_update_saves_and_returns_success(status_route, status):
+@pytest.mark.parametrize(
+    ("current_status", "next_status"),
+    [
+        ("accepted", "in_progress"),
+        ("in_progress", "arrived_at_pickup"),
+        ("arrived_at_pickup", "picked_up"),
+        ("picked_up", "arrived_at_dropoff"),
+    ],
+)
+async def test_status_update_saves_valid_transition(status_route, current_status, next_status):
     handler, state = status_route
-    result = await handler("test-id", SimpleNamespace(status=status, imageProofUrl=None), None)
-    assert result == {"status": status}
+    state.errand.status = current_status
+    result = await handler("test-id", SimpleNamespace(status=next_status, imageProofUrl=None), None)
+    assert result == {"status": next_status}
     assert state.commits == 1
     assert "CAST(errands.id AS VARCHAR)" in str(state.queries[0].compile())
-    assert state.events[0]["new_status"] == status
+    assert state.events[0]["new_status"] == next_status
+
+
+@pytest.mark.asyncio
+async def test_status_update_rejects_skipped_transition(status_route):
+    handler, state = status_route
+    with pytest.raises(HTTPException) as error:
+        await handler("test-id", SimpleNamespace(status="arrived_at_dropoff", imageProofUrl=None), None)
+    assert error.value.status_code == 409
+    assert state.commits == 0
 
 
 @pytest.mark.asyncio
@@ -74,3 +92,18 @@ async def test_status_update_rejects_unassigned_actor(status_route):
         await handler("test-id", SimpleNamespace(status="arrived_at_pickup", imageProofUrl=None), None)
     assert error.value.status_code == 403
     assert state.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_status_update_does_not_persist_temporary_blob_proof_url(status_route):
+    handler, state = status_route
+    state.errand.status = "arrived_at_dropoff"
+    state.errand.photo_url = "/attachments/permanent-proof/download"
+
+    await handler(
+        "test-id",
+        SimpleNamespace(status="proof_submitted", imageProofUrl="blob:http://localhost/temporary"),
+        None,
+    )
+
+    assert state.errand.photo_url == "/attachments/permanent-proof/download"

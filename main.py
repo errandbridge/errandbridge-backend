@@ -73,6 +73,7 @@ from app.services.storage import (
     get_storage_config,
     presign_or_stream_key,
     put_bytes,
+    resolve_local_attachment_path,
     s3_key,
 )
 
@@ -1820,6 +1821,8 @@ class ErrandStatusUpdateIn(BaseModel):
 async def update_errand_status(
     errand_id: Union[uuid.UUID, int, str], payload: ErrandStatusUpdateIn, request: Request
 ):
+    from app.errand_lifecycle import validate_errand_transition
+
     user_id = _current_user_id_from_request(request)
 
     async with AsyncSessionLocal() as session:
@@ -1833,34 +1836,28 @@ async def update_errand_status(
         is_assigned_pilot = model.pilot_id is not None and str(model.pilot_id) == str(user_id)
 
         if not is_client and not is_assigned_pilot:
-            user_res = await session.execute(select(User).where(cast(User.id, String) == str(user_id)))
-            current_user = user_res.scalar_one_or_none()
-            if current_user and getattr(current_user, "role", None) == "pilot":
-                if model.pilot_id is None or str(model.pilot_id).strip() == "":
-                    # Check if pilot has any disputed errands
-                    disputed_res = await session.execute(
-                        select(Errand).where(
-                            cast(Errand.pilot_id, String) == str(user_id),
-                            Errand.status == "disputed"
-                        )
-                    )
-                    if disputed_res.first():
-                        raise HTTPException(status_code=403, detail="Cannot accept new errands while you have a disputed errand")
-
-                    model.pilot_id = str(user_id)
-                    model.assigned_to = str(user_id)
-                elif str(model.pilot_id) != str(user_id):
-                    raise HTTPException(status_code=403, detail="Not allowed to update status")
-            else:
-                raise HTTPException(status_code=403, detail="Not allowed to update status")
+            raise HTTPException(
+                status_code=403,
+                detail="Only the assigned pilot or the customer can update this errand",
+            )
 
         if model.status == "disputed" and is_assigned_pilot and payload.status != "disputed":
             raise HTTPException(status_code=403, detail="Pilots cannot change the status of a disputed errand")
 
         previous_status = model.status
-        model.status = payload.status
+        actor = "customer" if is_client else "pilot"
+        try:
+            next_status = validate_errand_transition(
+                actor=actor,
+                current_status=previous_status,
+                next_status=payload.status,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-        if payload.status == "disputed":
+        model.status = next_status
+
+        if next_status == "disputed":
             if payload.issue_notes:
                 model.issue_notes = payload.issue_notes
             model.issue_status = "open"
@@ -1868,13 +1865,13 @@ async def update_errand_status(
                 model.issue_reported_at = datetime.now(timezone.utc)
 
         # If entering delivery/pickup active states, ensure started_at is set for live tracking
-        if payload.status in ["in_progress", "pickup_started", "picked_up"]:
+        if next_status in ["in_progress", "pickup_started", "picked_up"]:
             if not model.started_at:
                 model.started_at = datetime.now(timezone.utc)
             model.tracking_paused = False
 
         # If entering completion states, set completed_at and calculate delivery time
-        if payload.status in ["delivered", "completed"]:
+        if next_status in ["delivered", "completed"]:
             if not model.completed_at:
                 model.completed_at = datetime.now(timezone.utc)
             if model.started_at:
@@ -1882,7 +1879,12 @@ async def update_errand_status(
             model.tracking_paused = False
 
         if payload.imageProofUrl:
-            model.photo_url = payload.imageProofUrl
+            proof_url = str(payload.imageProofUrl).strip()
+            # Browser blob URLs only exist in the Pilot's current tab. The upload
+            # endpoint has already stored a durable attachment URL, so never
+            # replace it with an unusable local preview reference.
+            if proof_url and not proof_url.lower().startswith("blob:"):
+                model.photo_url = proof_url
 
         event_type_map = {
             "pickup_started": "pilot_started",
@@ -1890,11 +1892,11 @@ async def update_errand_status(
             "picked_up": "pilot_picked_up",
             "arrived_at_pickup": "pilot_arrived_pickup",
             "arrived_at_dropoff": "pilot_arrived_dropoff",
-            "delivered": "pilot_completed",
-            "completed": "pilot_completed",
+            "delivered": "pilot_submitted_completion",
+            "completed": "customer_confirmed",
             "cancelled": "client_cancelled" if str(model.user_id) == str(user_id) else "pilot_cancelled",
         }
-        event_type = event_type_map.get(payload.status, f"status_{payload.status}")
+        event_type = event_type_map.get(next_status, f"status_{next_status}")
 
         session.add(
             ErrandEvent(
@@ -2530,7 +2532,11 @@ async def download_shared_attachment(token: str, payload: ShareDownloadIn):
         )
         return RedirectResponse(url=url, status_code=302)
 
-    path = UPLOAD_DIR / attachment.stored_filename
+    path = pathlib.Path(
+        resolve_local_attachment_path(
+            attachment.stored_filename, str(UPLOAD_DIR), bucket_name="errand-runs"
+        )
+    )
     if not path.exists():
         raise HTTPException(status_code=404, detail="File missing on server")
 
@@ -2600,7 +2606,11 @@ async def download_shared_attachment_get(token: str, pin: str):
         )
         return RedirectResponse(url=url, status_code=302)
 
-    path = UPLOAD_DIR / attachment.stored_filename
+    path = pathlib.Path(
+        resolve_local_attachment_path(
+            attachment.stored_filename, str(UPLOAD_DIR), bucket_name="errand-runs"
+        )
+    )
     if not path.exists():
         raise HTTPException(status_code=404, detail="File missing on server")
 
@@ -2710,7 +2720,11 @@ async def download_attachment(attachment_id: uuid.UUID, request: Request):
         )
         return RedirectResponse(url=url, status_code=302)
 
-    path = UPLOAD_DIR / attachment.stored_filename
+    path = pathlib.Path(
+        resolve_local_attachment_path(
+            attachment.stored_filename, str(UPLOAD_DIR), bucket_name="errand-runs"
+        )
+    )
     if not path.exists():
         raise HTTPException(status_code=404, detail="File missing on server")
 

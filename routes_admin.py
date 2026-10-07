@@ -66,6 +66,7 @@ from models import (
 from app.services.storage import (
     get_storage_config,
     presign_or_stream_key,
+    resolve_local_attachment_path,
     s3_key,
     delete_object_if_exists,
 )
@@ -185,7 +186,7 @@ class AdminErrandChatOut(BaseModel):
     message_count: int
     last_message_at: Optional[datetime] = None
     last_message: Optional[str] = None
-    last_sender_id: Optional[uuid.UUID] = None
+    last_sender_id: Optional[FlexibleId] = None
 
 
 class AdminResetVisitsPayload(BaseModel):
@@ -423,6 +424,24 @@ class AdminAttachmentOut(BaseModel):
 class AdminAttachmentReviewIn(BaseModel):
     action: str
     note: Optional[str] = None
+
+
+def _serialize_attachment_review(attachment: ErrandAttachment) -> dict:
+    reviewed_at = (
+        attachment.reviewed_at.isoformat() if attachment.reviewed_at else None
+    )
+    return {
+        "ok": True,
+        "attachment_id": attachment.id,
+        "status": attachment.review_status,
+        # Retain the existing frontend contract while the snake_case fields above
+        # satisfy the documented AdminReviewAttachmentResponse schema.
+        "id": attachment.id,
+        "reviewStatus": attachment.review_status,
+        "reviewNote": attachment.review_note,
+        "reviewedAt": reviewed_at,
+        "reviewedByUserId": attachment.reviewed_by_user_id,
+    }
 
 
 class AdminErrandStatusUpdateIn(BaseModel):
@@ -980,7 +999,7 @@ async def list_errand_chats(
 
         out.append(
             AdminErrandChatOut(
-                errand_id=int(errand.id),
+                errand_id=errand.id,
                 reference_number=getattr(errand, "reference_number", None),
                 status=errand.status,
                 created_at=getattr(errand, "created_at", None),
@@ -995,9 +1014,7 @@ async def list_errand_chats(
                 message_count=int(message_count or 0),
                 last_message_at=last_message_at,
                 last_message=last_message,
-                last_sender_id=(
-                    int(last_sender_id) if last_sender_id is not None else None
-                ),
+                last_sender_id=last_sender_id,
             )
         )
 
@@ -1138,10 +1155,14 @@ async def review_attachment(
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    attachment.review_status = "approved" if action == "approve" else "rejected"
+    next_review_status = "approved" if action == "approve" else "rejected"
+    if attachment.review_status == next_review_status:
+        return _serialize_attachment_review(attachment)
+
+    attachment.review_status = next_review_status
     attachment.review_note = (payload.note or "").strip() or None
     attachment.reviewed_at = datetime.utcnow()
-    attachment.reviewed_by_user_id = int(admin.id)
+    attachment.reviewed_by_user_id = admin.id
 
     # Record errand history entry so clients/pilots can surface in-app activity updates.
     try:
@@ -1161,7 +1182,7 @@ async def review_attachment(
         ]
         db.add(
             ErrandEvent(
-                errand_id=int(errand.id),
+                errand_id=errand.id,
                 event_type=(
                     "admin_attachment_approved"
                     if attachment.review_status == "approved"
@@ -1170,7 +1191,7 @@ async def review_attachment(
                 old_status=getattr(errand, "status", None),
                 new_status=getattr(errand, "status", None),
                 note=" | ".join([p for p in note_parts if p])[:2000],
-                user_id=int(admin.id),
+                user_id=admin.id,
             )
         )
 
@@ -1196,7 +1217,7 @@ async def review_attachment(
                     expires_at=expires_at,
                     uses=0,
                     max_uses=10,
-                    created_by_user_id=int(admin.id),
+                    created_by_user_id=admin.id,
                 )
                 db.add(link)
                 await db.commit()
@@ -1227,15 +1248,7 @@ async def review_attachment(
         f"[admin] user_id={admin.id} action=review_attachment attachment_id={attachment_id} review_status={attachment.review_status}"
     )
 
-    return {
-        "id": attachment.id,
-        "reviewStatus": attachment.review_status,
-        "reviewNote": attachment.review_note,
-        "reviewedAt": (
-            attachment.reviewed_at.isoformat() if attachment.reviewed_at else None
-        ),
-        "reviewedByUserId": attachment.reviewed_by_user_id,
-    }
+    return _serialize_attachment_review(attachment)
 
 
 @router.post(
@@ -1253,44 +1266,43 @@ async def update_errand_status(
 ):
     """Admin updates an errand status (e.g., from 'assigned' to 'completed')."""
 
+    from app.errand_lifecycle import validate_errand_transition
+
     admin = await _require_admin(db, authorization)
 
     new_status = (payload.status or "").strip().lower()
-    valid_statuses = [
-        "pending",
-        "assigned",
-        "accepted",
-        "in_progress",
-        "pickup_started",
-        "picked_up",
-        "arrived_at_pickup",
-        "arrived_at_dropoff",
-        "delivered",
-        "completed",
-        "cancelled",
-    ]
-
-    if new_status not in valid_statuses:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid status. Expected one of: {', '.join(valid_statuses)}",
-        )
-
     errand = await db.get(Errand, errand_id)
     if not errand:
         raise HTTPException(status_code=404, detail="Errand not found")
 
     old_status = errand.status
+    try:
+        new_status = validate_errand_transition(
+            actor="admin",
+            current_status=old_status,
+            next_status=new_status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     errand.status = new_status
 
-    if new_status == "assigned":
-        if errand.assigned_to is None:
-            errand.assigned_to = admin.id
-        if not errand.assigned_at:
-            errand.assigned_at = datetime.now(timezone.utc)
+    if new_status == "completed" and not getattr(errand, "completed_at", None):
+        errand.completed_at = datetime.now(timezone.utc)
 
     # Update timestamp
     errand.updated_at = datetime.now(timezone.utc)
+
+    db.add(
+        ErrandEvent(
+            errand_id=errand.id,
+            event_type="admin_complete",
+            old_status=old_status,
+            new_status=new_status,
+            note=(payload.note or "Admin confirmed the completed errand")[:2000],
+            user_id=admin.id,
+        )
+    )
 
     await db.commit()
     await db.refresh(errand)
@@ -1484,7 +1496,7 @@ async def assign_pilot_to_errand(
             detail=f"Cannot assign pilot for errand status {errand.status}",
         )
 
-    pilot = await db.get(User, int(payload.pilot_id))
+    pilot = await db.get(User, payload.pilot_id)
     if not pilot or not getattr(pilot, "is_pilot", False):
         raise HTTPException(status_code=400, detail="Pilot not found or not eligible")
 
@@ -1509,7 +1521,7 @@ async def assign_pilot_to_errand(
         )
 
     previous_status = errand.status
-    errand.pilot_id = str(payload.pilot_id)
+    errand.pilot_id = payload.pilot_id
     errand.status = "assigned"
     errand.assigned_to = admin.id
     errand.assigned_at = datetime.now(timezone.utc)
@@ -1740,7 +1752,11 @@ async def admin_download_attachment(
         )
         return RedirectResponse(url=url, status_code=302)
 
-    path = UPLOAD_DIR / attachment.stored_filename
+    path = pathlib.Path(
+        resolve_local_attachment_path(
+            attachment.stored_filename, str(UPLOAD_DIR), bucket_name="errand-runs"
+        )
+    )
     if not path.exists():
         raise HTTPException(status_code=404, detail="File missing on server")
 
@@ -1824,7 +1840,11 @@ async def download_pilot_document(
         )
         return RedirectResponse(url=url, status_code=302)
 
-    path = UPLOAD_DIR / document.stored_filename
+    path = pathlib.Path(
+        resolve_local_attachment_path(
+            document.stored_filename, str(UPLOAD_DIR), bucket_name="verifications"
+        )
+    )
     if not path.exists():
         raise HTTPException(status_code=404, detail="File missing on server")
 
@@ -1980,11 +2000,15 @@ async def download_pilot_employment_attachment(
             filename=attachment.original_filename,
             content_type=attachment.content_type,
             expires_seconds=120,
-            bucket_name="errand-runs",
+            bucket_name="verifications",
         )
         return RedirectResponse(url=url, status_code=302)
 
-    path = UPLOAD_DIR / attachment.stored_filename
+    path = pathlib.Path(
+        resolve_local_attachment_path(
+            attachment.stored_filename, str(UPLOAD_DIR), bucket_name="verifications"
+        )
+    )
     if not path.exists():
         raise HTTPException(status_code=404, detail="File missing on server")
 

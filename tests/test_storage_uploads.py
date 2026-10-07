@@ -22,6 +22,33 @@ def test_local_storage_writes_to_the_configured_directory(monkeypatch, tmp_path)
     assert (tmp_path / "pilot-id.png").read_bytes() == b"image"
 
 
+def test_local_storage_bucket_path_matches_upload_and_download(monkeypatch, tmp_path):
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.setenv("STORAGE_DRIVER", "local")
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
+
+    _, uploaded_path = storage.put_bytes(
+        "proof.png", b"proof", "image/png", bucket_name="errand-runs"
+    )
+    download_path = storage.get_local_path_from_attachment(
+        "proof.png", str(tmp_path), bucket_name="errand-runs"
+    )
+
+    assert download_path == uploaded_path
+    assert (tmp_path / "errand-runs" / "proof.png").read_bytes() == b"proof"
+
+
+def test_local_storage_resolver_falls_back_to_legacy_root_file(tmp_path):
+    legacy_file = tmp_path / "legacy-proof.png"
+    legacy_file.write_bytes(b"legacy-proof")
+
+    resolved_path = storage.resolve_local_attachment_path(
+        "legacy-proof.png", str(tmp_path), bucket_name="errand-runs"
+    )
+
+    assert resolved_path == str(legacy_file)
+
+
 def test_serverless_local_storage_is_rejected_before_writing(monkeypatch, tmp_path):
     monkeypatch.setenv("VERCEL", "1")
     monkeypatch.setenv("STORAGE_DRIVER", "local")

@@ -448,8 +448,6 @@ async def list_available_jobs(
             )
             matches_dispatch_policy = is_visible
             if not is_visible:
-                if not dispatch_policy.get("show_all_jobs_to_pilots"):
-                    continue
                 acceptance_block_reason = _open_pool_visibility_error_detail(
                     reason,
                     policy_state=dispatch_policy,
@@ -518,7 +516,19 @@ async def list_pilot_jobs(
     pilot = await _get_current_user(authorization, db)
 
     status_value = (status or status_filter or "active").strip().lower()
-    active_statuses = ["assigned", "accepted", "picked_up", "delivered", "in_progress"]
+    active_statuses = [
+        "assigned",
+        "accepted",
+        "in_progress",
+        "pickup_started",
+        "arrived_at_pickup",
+        "picked_up",
+        "dropoff_started",
+        "arrived_at_dropoff",
+        "proof_submitted",
+        "delivered",
+        "disputed",
+    ]
     completed_statuses = ["completed"]
 
     statuses = None
@@ -544,9 +554,32 @@ async def list_pilot_jobs(
         query = query.where(Errand.status.in_(statuses))
 
     result = await db.execute(query.order_by(Errand.updated_at.desc()))
+    rows = result.all()
+
+    errand_ids = [errand.id for errand, _user in rows]
+    attachment_statuses: dict[str, list[str]] = {}
+    if errand_ids:
+        attachment_result = await db.execute(
+            select(ErrandAttachment.errand_id, ErrandAttachment.review_status).where(
+                ErrandAttachment.errand_id.in_(errand_ids)
+            )
+        )
+        for attachment_errand_id, review_status in attachment_result.all():
+            attachment_statuses.setdefault(str(attachment_errand_id), []).append(
+                str(review_status or "pending").lower()
+            )
 
     errands = []
-    for errand, user in result.all():
+    for errand, user in rows:
+        proof_statuses = attachment_statuses.get(str(errand.id), [])
+        if "rejected" in proof_statuses:
+            proof_review_status = "rejected"
+        elif proof_statuses and all(value == "approved" for value in proof_statuses):
+            proof_review_status = "approved"
+        elif proof_statuses:
+            proof_review_status = "pending"
+        else:
+            proof_review_status = None
         errands.append(
             {
                 "id": errand.id,
@@ -579,6 +612,8 @@ async def list_pilot_jobs(
                 ),
                 "distance_km": getattr(errand, "distance_km", None),
                 "customer_rating": getattr(errand, "customer_rating", None),
+                "proof_review_status": proof_review_status,
+                "proofReviewStatus": proof_review_status,
                 "pickup_time_slot_start": (
                     errand.pickup_time_slot_start.isoformat()
                     if errand.pickup_time_slot_start
@@ -1323,10 +1358,10 @@ async def start_delivery(
                 "amount": getattr(errand, "amount", 0),
             }
 
-        if errand.status not in ["assigned", "accepted"]:
+        if errand.status != "accepted":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot start delivery - current status is {errand.status}",
+                detail=f"Cannot start errand - current status is {errand.status}. Accept it first.",
             )
 
         if pilot_id and errand.pilot_id and str(errand.pilot_id) != str(pilot_id):
@@ -1413,7 +1448,7 @@ async def start_delivery(
             "status": errand.status,
             "tracking_enabled": True,
             "tracking_url": f"/tracking/ws/{errand_id}",
-            "message": "Delivery started. GPS tracking is now active.",
+            "message": "Errand started. GPS tracking is now active.",
             "pickup_location": errand.pickup_location,
             "dropoff_location": errand.dropoff_location,
             "delivery_location": errand.dropoff_location,
@@ -1577,10 +1612,10 @@ async def complete_delivery(
                 detail="Not assigned to this errand",
             )
 
-        if errand.status != "in_progress":
+        if errand.status != "proof_submitted":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot complete delivery - current status is {errand.status}",
+                detail=f"Cannot submit errand as done - current status is {errand.status}. Upload completion proof first.",
             )
 
         # Calculate delivery time
@@ -1593,7 +1628,7 @@ async def complete_delivery(
         previous_status = errand.status
 
         # Update errand
-        errand.status = "completed"
+        errand.status = "delivered"
         errand.completed_at = datetime.now(timezone.utc)
         errand.delivery_time = delivery_time
         errand.tracking_paused = False
@@ -1610,13 +1645,13 @@ async def complete_delivery(
         db.add(
             ErrandEvent(
                 errand_id=errand.id,
-                event_type="pilot_completed",
+                event_type="pilot_submitted_completion",
                 old_status=previous_status,
                 new_status=errand.status,
                 note=(
-                    (notes or "Pilot completed delivery")[:2000]
+                    (notes or "Pilot submitted the completed errand")[:2000]
                     if notes
-                    else "Pilot completed delivery"
+                    else "Pilot submitted the completed errand"
                 ),
                 user_id=pilot_user.id,
             )
@@ -1656,7 +1691,7 @@ async def complete_delivery(
             await notify_pilot_status(
                 db,
                 errand=errand,
-                new_status="completed",
+                new_status="delivered",
                 trigger="pilot-complete",
             )
         except Exception as e:
@@ -1685,7 +1720,7 @@ async def complete_delivery(
             "tracking_enabled": False,
             "delivery_time_minutes": round(delivery_time / 60, 1),
             "delivery_time_seconds": int(delivery_time),
-            "message": "✅ Delivery completed successfully!",
+            "message": "Errand submitted successfully. Awaiting customer confirmation.",
             "completed_at": errand.completed_at.isoformat(),
             "route_archive": archive_payload,
         }

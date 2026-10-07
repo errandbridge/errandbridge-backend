@@ -4,7 +4,9 @@ graphql-core>=3.2.0,<3.3.0
 sqlalchemy[asyncio]
 greenlet
 asyncpg
+aiosqlite
 alembic
+boto3
 python-dotenv
 passlib[bcrypt]
 bcrypt

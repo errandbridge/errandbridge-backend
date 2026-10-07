@@ -28,8 +28,24 @@ def _smtp_host() -> str:
 
 
 def _stdout_fallback_allowed() -> bool:
-    env = (os.getenv("ENV") or os.getenv("APP_ENV") or "").strip().lower()
-    if env in {"prod", "production", "staging"}:
+    env = (
+        os.getenv("ENV")
+        or os.getenv("BACKEND_ENVIRONMENT")
+        or os.getenv("ENVIRONMENT")
+        or os.getenv("APP_ENV")
+        or ""
+    ).strip().lower()
+    running_in_managed_container = any(
+        os.getenv(key)
+        for key in (
+            "AWS_EXECUTION_ENV",
+            "ECS_CONTAINER_METADATA_URI_V4",
+            "ECS_CONTAINER_METADATA_URI",
+            "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+            "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+        )
+    )
+    if env in {"prod", "production", "staging"} or running_in_managed_container:
         return os.getenv("SMTP_FALLBACK_TO_STDOUT", "").strip().lower() in {
             "1",
             "true",

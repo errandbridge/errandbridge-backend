@@ -10,7 +10,14 @@ import routes_auth
 def _clear_email_env(monkeypatch):
     for key in (
         "ENV",
+        "BACKEND_ENVIRONMENT",
+        "ENVIRONMENT",
         "APP_ENV",
+        "AWS_EXECUTION_ENV",
+        "ECS_CONTAINER_METADATA_URI_V4",
+        "ECS_CONTAINER_METADATA_URI",
+        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI",
         "SMTP_HOST",
         "SMTP_SERVER",
         "SMTP_PORT",
@@ -91,6 +98,31 @@ def test_smtp_enabled_accepts_legacy_smtp_server(monkeypatch):
 def test_send_email_does_not_stdout_fallback_in_production(monkeypatch):
     _clear_email_env(monkeypatch)
     monkeypatch.setenv("ENV", "prod")
+
+    result = emailer.send_email(
+        to_email="client@example.com",
+        subject="Test",
+        body_text="Hello",
+    )
+
+    assert result.delivered is False
+    assert result.provider == "none"
+    assert result.detail == "missing_email_provider_config"
+
+
+@pytest.mark.parametrize(
+    ("env_key", "env_value"),
+    [
+        ("BACKEND_ENVIRONMENT", "production"),
+        ("ENVIRONMENT", "staging"),
+        ("AWS_EXECUTION_ENV", "AWS_ECS_FARGATE"),
+    ],
+)
+def test_send_email_does_not_stdout_fallback_in_other_production_markers(
+    monkeypatch, env_key, env_value
+):
+    _clear_email_env(monkeypatch)
+    monkeypatch.setenv(env_key, env_value)
 
     result = emailer.send_email(
         to_email="client@example.com",

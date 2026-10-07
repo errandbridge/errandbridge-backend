@@ -38,12 +38,12 @@ class FakeDB:
 async def test_rest_login_allows_pilot_account_in_client_mode(monkeypatch):
     pilot_user = DummyUser("pilot@example.com", is_pilot=True)
 
-    async def fake_get_user_by_email(db, email: str):
+    async def fake_get_user_by_identifier(db, email: str):
         assert email == "pilot@example.com"
         return pilot_user
 
-    monkeypatch.setattr(routes_auth, "_get_user_by_email", fake_get_user_by_email)
-    monkeypatch.setattr(routes_auth, "_check_otp", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(routes_auth, "_get_user_by_identifier", fake_get_user_by_identifier)
+    monkeypatch.setattr(routes_auth, "verify_password", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         routes_auth, "create_access_token", lambda user_id: f"token-{user_id}"
     )
@@ -52,8 +52,8 @@ async def test_rest_login_allows_pilot_account_in_client_mode(monkeypatch):
     )
     monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
 
-    response = await routes_auth.login(
-        routes_auth.LoginRequest(
+    response = await routes_auth.auth_direct_login(
+        routes_auth.DirectLoginRequest(
             email="pilot@example.com",
             password="password123",
             role="client",
@@ -69,16 +69,16 @@ async def test_rest_login_allows_pilot_account_in_client_mode(monkeypatch):
 async def test_rest_login_rejects_client_account_in_pilot_mode(monkeypatch):
     client_user = DummyUser("client@example.com", is_pilot=False)
 
-    async def fake_get_user_by_email(db, email: str):
+    async def fake_get_user_by_identifier(db, email: str):
         assert email == "client@example.com"
         return client_user
 
-    monkeypatch.setattr(routes_auth, "_get_user_by_email", fake_get_user_by_email)
-    monkeypatch.setattr(routes_auth, "_check_otp", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(routes_auth, "_get_user_by_identifier", fake_get_user_by_identifier)
+    monkeypatch.setattr(routes_auth, "verify_password", lambda *_args, **_kwargs: True)
 
     with pytest.raises(HTTPException) as exc_info:
-        await routes_auth.login(
-            routes_auth.LoginRequest(
+        await routes_auth.auth_direct_login(
+            routes_auth.DirectLoginRequest(
                 email="client@example.com",
                 password="password123",
                 role="pilot",
@@ -94,11 +94,11 @@ async def test_rest_login_rejects_client_account_in_pilot_mode(monkeypatch):
 async def test_rest_login_allows_matching_role(monkeypatch):
     pilot_user = DummyUser("pilot@example.com", is_pilot=True)
 
-    async def fake_get_user_by_email(db, email: str):
+    async def fake_get_user_by_identifier(db, email: str):
         return pilot_user
 
-    monkeypatch.setattr(routes_auth, "_get_user_by_email", fake_get_user_by_email)
-    monkeypatch.setattr(routes_auth, "_check_otp", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(routes_auth, "_get_user_by_identifier", fake_get_user_by_identifier)
+    monkeypatch.setattr(routes_auth, "verify_password", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
         routes_auth, "create_access_token", lambda user_id: f"token-{user_id}"
     )
@@ -107,8 +107,8 @@ async def test_rest_login_allows_matching_role(monkeypatch):
     )
     monkeypatch.setattr(routes_auth, "admin_emails", lambda: [])
 
-    response = await routes_auth.login(
-        routes_auth.LoginRequest(
+    response = await routes_auth.auth_direct_login(
+        routes_auth.DirectLoginRequest(
             email="pilot@example.com",
             password="password123",
             role="pilot",

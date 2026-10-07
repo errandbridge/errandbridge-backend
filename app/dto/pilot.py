@@ -78,6 +78,8 @@ class PilotJobItem(BaseModel):
     paymentAmountNgnMajor: Optional[float] = Field(default=None, description="CamelCase alias")
     distance_km: Optional[float] = Field(default=None, description="Distance in km")
     customer_rating: Optional[float] = Field(default=None, description="Rating")
+    proof_review_status: Optional[str] = Field(default=None, description="Aggregate proof verification status")
+    proofReviewStatus: Optional[str] = Field(default=None, description="CamelCase proof verification status")
     pickup_time_slot_start: Optional[str] = Field(default=None, description="Time slot start")
     pickup_time_slot_end: Optional[str] = Field(default=None, description="Time slot end")
     pickup_time_slot_date: Optional[str] = Field(default=None, description="Time slot date")
