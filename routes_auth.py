@@ -2142,9 +2142,7 @@ async def me(
             status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified"
         )
 
-    admin_emails_raw = os.getenv("ADMIN_EMAILS", "")
-    admin_emails = {e.strip().lower() for e in admin_emails_raw.split(",") if e.strip()}
-    is_admin = user.email.lower() in admin_emails
+    is_admin = user.email.strip().lower() in admin_emails()
 
     # Transparency metrics (scoped to the signed-in user)
     # - completed_errands: count of this user's errands with terminal status
@@ -2647,8 +2645,9 @@ async def auth_direct_login(payload: DirectLoginRequest, db: AsyncSession = Depe
                 if verify_password(payload.password, user.password_hash):
                     token = create_access_token(user.id)
                     refresh_token = create_refresh_token(user.id)
-                    admin_emails = [e.strip().lower() for e in (os.getenv("ADMIN_EMAILS") or "").split(",") if e.strip()]
-                    is_admin = bool(user.email and user.email.lower() in admin_emails)
+                    is_admin = bool(
+                        user.email and user.email.strip().lower() in admin_emails()
+                    )
                     user_uuid_str = str(user.user_uuid) if getattr(user, "user_uuid", None) else f"00000000-0000-0000-0000-{int(user.id):012d}"
                     return AuthResponse(
                         access_token=token,

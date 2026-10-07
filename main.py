@@ -1324,10 +1324,7 @@ async def dev_verify_admin(email: str):
     """Temporary endpoint to verify admin email for development/onboarding."""
     _assert_dev_route_enabled()
     # Only works if admin emails are configured
-    admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
-    admin_emails_list = [e.strip().lower() for e in admin_emails if e.strip()]
-
-    if email.lower() not in admin_emails_list:
+    if email.strip().lower() not in admin_emails():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Email is not configured as admin",

