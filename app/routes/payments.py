@@ -12,6 +12,7 @@ except (
 ):  # pragma: no cover - handled in environments without stripe installed
     stripe = None
 from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, cast, String, func, or_, Integer
 import uuid
@@ -46,7 +47,11 @@ payments_router = APIRouter(prefix="/payments", tags=["payments"])
 webhooks_router = APIRouter(prefix="/webhooks", tags=["payments"])
 router = payments_router
 
-_PAYMENT_CONFIRMED_TYPES = {"checkout.session.completed", "payment_intent.succeeded"}
+_PAYMENT_CONFIRMED_TYPES = {
+    "checkout.session.completed",
+    "payment_intent.amount_capturable_updated",
+    "payment_intent.succeeded",
+}
 _PAYMENT_FAILED_TYPES = {"payment_intent.payment_failed", "checkout.session.expired"}
 _DEFAULT_SUCCESS_URL = "https://www.errandbridge.com/payment/success"
 _DEFAULT_CANCEL_URL = "https://www.errandbridge.com/payment/cancel"
@@ -449,6 +454,7 @@ class CheckoutSessionRequest(BaseModel):
     mode: Optional[Literal["payment", "subscription"]] = None
     plan: Optional[str] = None
     promo_code: Optional[str] = None
+    native_return: bool = False
 
 
 class CheckoutSessionResponse(BaseModel):
@@ -488,8 +494,13 @@ class VerifySessionRequest(BaseModel):
 
 class VerifySessionResponse(BaseModel):
     paid: bool
+    authorized: bool = False
+    captured: bool = False
     status: Optional[str] = None
     payment_status: Optional[str] = None
+    payment_intent_status: Optional[str] = None
+    capture_method: Optional[str] = None
+    livemode: Optional[bool] = None
     mode: Optional[str] = None
     customer_email: Optional[str] = None
     amount_total: Optional[int] = None
@@ -503,6 +514,7 @@ class VerifySessionResponse(BaseModel):
 class PaymentsHealthResponse(BaseModel):
     configured: bool
     subscription_configured: bool
+    livemode: Optional[bool] = None
     provider: str = "stripe"
 
 
@@ -704,6 +716,54 @@ def _build_cancel_url(frontend_origin: str | None = None) -> str:
     return _DEFAULT_CANCEL_URL
 
 
+def _build_native_return_url(request: Request, outcome: Literal["success", "cancel"]) -> str:
+    configured_origin = (os.getenv("PAYMENTS_NATIVE_RETURN_ORIGIN") or "").strip()
+    request_origin = str(request.base_url).rstrip("/")
+    origin = configured_origin or request_origin
+    parsed = urlparse(origin)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Native payment return origin is invalid",
+        )
+    suffix = f"/payments/native-return/payment/{outcome}"
+    if outcome == "success":
+        return f"{origin.rstrip('/')}{suffix}?session_id={{CHECKOUT_SESSION_ID}}"
+    return f"{origin.rstrip('/')}{suffix}"
+
+
+def _native_return_html(outcome: Literal["success", "cancel"]) -> str:
+    title = "Payment complete" if outcome == "success" else "Payment cancelled"
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="color-scheme" content="light">
+    <title>{title}</title>
+</head>
+<body style="margin:0;background:#f4f7f2;color:#172019;font:16px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;display:grid;min-height:100vh;place-items:center;text-align:center">
+    <main><strong>Returning to ErrandBridge…</strong><p style="color:#758078">You can close this window if the app does not open.</p></main>
+    <script>
+        (function () {{
+            var target = 'errandbridge://payment/{outcome}' + window.location.search;
+            window.location.replace(target);
+        }}());
+    </script>
+</body>
+</html>"""
+
+
+@payments_router.get("/native-return/payment/success", response_class=HTMLResponse)
+async def native_payment_success_return() -> HTMLResponse:
+    return HTMLResponse(_native_return_html("success"), headers={"Cache-Control": "no-store"})
+
+
+@payments_router.get("/native-return/payment/cancel", response_class=HTMLResponse)
+async def native_payment_cancel_return() -> HTMLResponse:
+    return HTMLResponse(_native_return_html("cancel"), headers={"Cache-Control": "no-store"})
+
+
 def _resolve_checkout_mode(payload: CheckoutSessionRequest) -> str:
     if payload.mode == "subscription":
         return "subscription"
@@ -734,7 +794,8 @@ async def payments_health():
     This is safe to call from the frontend to decide whether to show/enable
     Stripe Checkout actions. It deliberately avoids returning any secret values.
     """
-    secret_key = bool((os.getenv("STRIPE_SECRET_KEY") or "").strip())
+    secret_key_value = (os.getenv("STRIPE_SECRET_KEY") or "").strip()
+    secret_key = bool(secret_key_value)
     sdk_ready = stripe is not None
     configured = secret_key and sdk_ready
     subscription_configured = bool(
@@ -747,6 +808,7 @@ async def payments_health():
     return PaymentsHealthResponse(
         configured=configured,
         subscription_configured=subscription_configured,
+        livemode=(secret_key_value.startswith("sk_live_") if secret_key else None),
     )
 
 
@@ -913,8 +975,16 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
     )
 
     session_kwargs: dict[str, Any] = {
-        "success_url": _build_success_url(frontend_origin),
-        "cancel_url": _build_cancel_url(frontend_origin),
+        "success_url": (
+            _build_native_return_url(request, "success")
+            if payload.native_return
+            else _build_success_url(frontend_origin)
+        ),
+        "cancel_url": (
+            _build_native_return_url(request, "cancel")
+            if payload.native_return
+            else _build_cancel_url(frontend_origin)
+        ),
         "mode": checkout_mode,
         "client_reference_id": payload.reference_id,
         "customer_email": payload.customer_email,
@@ -1051,6 +1121,13 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
             description = "ErrandBridge tip"
         else:
             description = payload.description or "ErrandBridge payment"
+
+        payment_intent_data: dict[str, Any] = {"metadata": metadata_to_use}
+        # Errand payments are authorized now and captured only after the customer
+        # confirms delivered work. Tips remain immediate charges.
+        if kind != _TIP_KIND:
+            payment_intent_data["capture_method"] = "manual"
+
         session_kwargs.update(
             {
                 "line_items": [
@@ -1063,7 +1140,7 @@ async def create_checkout_session(payload: CheckoutSessionRequest, request: Requ
                         "quantity": 1,
                     }
                 ],
-                "payment_intent_data": {"metadata": metadata_to_use},
+                "payment_intent_data": payment_intent_data,
                 "metadata": metadata_to_use,
             }
         )
@@ -1148,17 +1225,27 @@ async def verify_checkout_session(payload: VerifySessionRequest):
             # We mock the session object for the rest of the flow
             class MockSession:
                 id = intent.id
-                status = "complete" if intent.status == "succeeded" else "open"
-                payment_status = "paid" if intent.status == "succeeded" else "unpaid"
+                status = (
+                    "complete"
+                    if intent.status in {"requires_capture", "succeeded"}
+                    else "open"
+                )
+                payment_status = (
+                    "paid"
+                    if intent.status == "succeeded"
+                    else "unpaid"
+                )
                 mode = "payment"
                 amount_total = intent.amount
                 currency = intent.currency
                 customer = intent.customer
                 metadata = intent.metadata
+                payment_intent = intent
+                livemode = getattr(intent, "livemode", None)
             session = MockSession()
         else:
             session = stripe.checkout.Session.retrieve(
-                payload.session_id, expand=["subscription"]
+                payload.session_id, expand=["subscription", "payment_intent"]
             )
     except Exception as exc:  # noqa: BLE001
         observe_stripe_verify_session(result="error", paid=False, kind="unknown")
@@ -1173,10 +1260,6 @@ async def verify_checkout_session(payload: VerifySessionRequest):
         getattr(subscription, "status", None) if subscription else None
     )
 
-    paid = session.payment_status == "paid"
-    if session.mode == "subscription" and subscription_status in {"active", "trialing"}:
-        paid = True
-
     # Capture Stripe metadata (if present) so the frontend can distinguish a normal
     # checkout from a post-completion tip.
     try:
@@ -1190,13 +1273,40 @@ async def verify_checkout_session(payload: VerifySessionRequest):
         if session.mode == "subscription"
         else _parse_checkout_kind(metadata)
     )
+    payment_intent = getattr(session, "payment_intent", None)
+    payment_intent_status = (
+        getattr(payment_intent, "status", None) if payment_intent else None
+    )
+    capture_method = (
+        getattr(payment_intent, "capture_method", None) if payment_intent else None
+    )
+    captured = bool(
+        session.payment_status == "paid" or payment_intent_status == "succeeded"
+    )
+    authorized = bool(
+        captured
+        or (kind != _TIP_KIND and payment_intent_status == "requires_capture")
+    )
+    # Keep `paid` backward compatible as the entitlement/submission gate. For an
+    # errand payment it means Stripe has secured the funds, not necessarily captured them.
+    paid = authorized
+    if session.mode == "subscription" and subscription_status in {"active", "trialing"}:
+        paid = True
+        captured = True
+        authorized = True
+
     errand_id = _parse_errand_id(metadata) if kind != _TIP_KIND else None
     tip_errand_id = _parse_tip_errand_id(metadata) if kind == _TIP_KIND else None
 
     response = VerifySessionResponse(
         paid=paid,
+        authorized=authorized,
+        captured=captured,
         status=session.status,
         payment_status=session.payment_status,
+        payment_intent_status=payment_intent_status,
+        capture_method=capture_method,
+        livemode=getattr(session, "livemode", None),
         mode=session.mode,
         customer_email=getattr(
             getattr(session, "customer_details", None), "email", None
@@ -1953,6 +2063,7 @@ async def process_payment_intent(request: Request):
                 payment_method=payment_method_id,
                 off_session=True,
                 confirm=True,
+                capture_method="manual",
                 metadata=metadata
             )
         except stripe.error.CardError as exc:
@@ -1971,7 +2082,7 @@ async def process_payment_intent(request: Request):
             logger.error(f"Unexpected error creating PaymentIntent: {exc}")
             raise HTTPException(status_code=400, detail=getattr(exc, 'user_message', None) or str(exc))
         
-        if intent.status == "succeeded":
+        if intent.status in {"requires_capture", "succeeded"}:
             if errand:
                 try:
                     errand.status = "open"

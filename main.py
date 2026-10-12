@@ -858,7 +858,8 @@ class ErrandCreateRequest(BaseModel):
     note: Optional[str] = None
     category: Optional[str] = None
     estimated_time: Optional[str] = None
-    payment_amount: Optional[float] = None
+    payment_amount: Optional[int] = Field(default=None, alias="paymentAmount", ge=0)
+    payment_currency: Optional[str] = Field(default="GBP", alias="paymentCurrency", min_length=3, max_length=3)
     payment_session_id: Optional[str] = Field(default=None, alias="paymentSessionId")
     paymentSessionId: Optional[str] = None
 
@@ -898,6 +899,8 @@ class ErrandResponse(BaseModel):
                 ("completed_at", "completedAt"),
                 ("pickup_time_slot_date", "pickupTimeSlotDate"),
                 ("photo_url", "photoUrl"),
+                ("payment_amount", "paymentAmount"),
+                ("payment_currency", "paymentCurrency"),
             ]:
                 val = data.get(snk) if data.get(snk) is not None else data.get(cml)
                 data[snk] = val
@@ -945,6 +948,10 @@ class ErrandResponse(BaseModel):
     pickupTimeSlotDate: Optional[str] = None
     photo_url: Optional[str] = None
     photoUrl: Optional[str] = None
+    payment_amount: Optional[int] = None
+    paymentAmount: Optional[int] = None
+    payment_currency: Optional[str] = None
+    paymentCurrency: Optional[str] = None
 
 
 # Initialize OpenAI client
@@ -1542,6 +1549,10 @@ def _errand_response(
         pickupTimeSlotDate=getattr(model, "pickup_time_slot_date", None),
         photo_url=getattr(model, "photo_url", None),
         photoUrl=getattr(model, "photo_url", None),
+        payment_amount=getattr(model, "final_price_minor", None),
+        paymentAmount=getattr(model, "final_price_minor", None),
+        payment_currency=getattr(model, "final_price_currency", None),
+        paymentCurrency=getattr(model, "final_price_currency", None),
     )
 
 
@@ -1666,6 +1677,8 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
             dropoff_contact_name=dropoff_name,
             dropoff_contact_phone=dropoff_phone,
             distance_km=payload.distance_km if payload.distance_km is not None else (payload.distanceKm if payload.distanceKm is not None else 5.0),
+            final_price_minor=payload.payment_amount,
+            final_price_currency=(payload.payment_currency or "GBP").upper(),
             note=note,
             status="submitted",
             user_id=str(user_id),
@@ -1742,6 +1755,10 @@ async def create_errand(request: Request, payload: ErrandCreateRequest):
         "pickup_time_slot_date": getattr(model, "pickup_time_slot_date", None),
         "pickupTimeSlotDate": getattr(model, "pickup_time_slot_date", None),
         "note": model.note,
+        "payment_amount": model.final_price_minor,
+        "paymentAmount": model.final_price_minor,
+        "payment_currency": model.final_price_currency,
+        "paymentCurrency": model.final_price_currency,
     }
 
 
@@ -1822,6 +1839,11 @@ async def update_errand_status(
     errand_id: Union[uuid.UUID, int, str], payload: ErrandStatusUpdateIn, request: Request
 ):
     from app.errand_lifecycle import validate_errand_transition
+    from app.services.payment_lifecycle_service import (
+        PaymentLifecycleError,
+        cancel_errand_authorization,
+        capture_errand_payment,
+    )
 
     user_id = _current_user_id_from_request(request)
 
@@ -1854,6 +1876,15 @@ async def update_errand_status(
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        payment_action = None
+        try:
+            if next_status == "completed" and is_client:
+                payment_action = await capture_errand_payment(session, model.id)
+            elif next_status == "cancelled" and is_client:
+                payment_action = await cancel_errand_authorization(session, model.id)
+        except PaymentLifecycleError as exc:
+            raise HTTPException(status_code=402, detail=str(exc)) from exc
 
         model.status = next_status
 
@@ -1898,13 +1929,18 @@ async def update_errand_status(
         }
         event_type = event_type_map.get(next_status, f"status_{next_status}")
 
+        payment_note = (
+            f"; payment_action={payment_action.action}"
+            if payment_action is not None
+            else ""
+        )
         session.add(
             ErrandEvent(
                 errand_id=model.id,
                 event_type=event_type,
                 old_status=previous_status,
                 new_status=model.status,
-                note=f"Status updated to {model.status}",
+                note=f"Status updated to {model.status}{payment_note}",
                 user_id=str(user_id),
             )
         )

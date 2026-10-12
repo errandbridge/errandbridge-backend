@@ -1908,6 +1908,11 @@ class Mutation:
     @strawberry.mutation
     async def mark_errand_done(self, info: Info, errand_id: uuid.UUID) -> Errand:
         """Admin or customer marks errand as done (completed)."""
+        from app.services.payment_lifecycle_service import (
+            PaymentLifecycleError,
+            capture_errand_payment,
+        )
+
         session: AsyncSession = info.context["db"]
         current_user_id = info.context.get("current_user_id")
         if not current_user_id:
@@ -1936,6 +1941,11 @@ class Mutation:
                 f"Can only confirm delivered errands as completed, current: {errand.status}"
             )
 
+        try:
+            payment_action = await capture_errand_payment(session, errand.id)
+        except PaymentLifecycleError as exc:
+            raise ValueError(str(exc)) from exc
+
         # Change status to 'completed'
         previous_status = errand.status
         errand.status = "completed"
@@ -1948,7 +1958,10 @@ class Mutation:
             event_type="completed",
             old_status=previous_status,
             new_status="completed",
-            note=f"Marked as done by {'customer' if is_customer else 'admin'} user {current_user_id}",
+            note=(
+                f"Marked as done by {'customer' if is_customer else 'admin'} user "
+                f"{current_user_id} | payment_action={payment_action.action}"
+            ),
             user_id=current_user_id,
         )
 
@@ -2082,6 +2095,18 @@ class Mutation:
                 "Cancellation requires agreeing to the deduction/refund policy."
             )
 
+        payment_action = None
+        if stage == "pre-assignment":
+            from app.services.payment_lifecycle_service import (
+                PaymentLifecycleError,
+                cancel_errand_authorization,
+            )
+
+            try:
+                payment_action = await cancel_errand_authorization(session, errand.id)
+            except PaymentLifecycleError as exc:
+                raise ValueError(str(exc)) from exc
+
         old_status = errand.status
         errand.status = "cancelled"
 
@@ -2098,6 +2123,8 @@ class Mutation:
         ]
         if stage == "pre-assignment":
             note_parts.append("Policy: zero charge (no pilot assigned)")
+            if payment_action is not None:
+                note_parts.append(f"Payment action: {payment_action.action}")
         else:
             note_parts.append("Policy: deductions may apply based on work started")
         if reason_clean:

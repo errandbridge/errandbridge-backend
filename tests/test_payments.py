@@ -100,6 +100,73 @@ def test_payments_allowed_origins_override_is_authoritative(monkeypatch):
     assert origin is None
 
 
+def test_native_payment_return_bridge_deep_links_without_rendering_public_site():
+    client = TestClient(app)
+
+    response = client.get(
+        "/payments/native-return/payment/success?session_id=cs_test_native"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert "errandbridge://payment/success" in response.text
+    assert "window.location.search" in response.text
+    assert "Welcome back" not in response.text
+
+
+def test_checkout_session_uses_native_return_bridge_when_requested(monkeypatch):
+    from app.routes import payments as payments_module
+
+    created = {}
+
+    class _CheckoutSessionApi:
+        @staticmethod
+        def create(**kwargs):
+            created.update(kwargs)
+            return SimpleNamespace(
+                id="cs_test_native_return",
+                url="https://checkout.stripe.test/cs_test_native_return",
+                mode="payment",
+                currency="gbp",
+                amount_total=1663,
+                customer=None,
+                subscription=None,
+            )
+
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "stripe-test-placeholder")
+    monkeypatch.setenv("PAYMENTS_NATIVE_RETURN_ORIGIN", "https://api.errandbridge.com")
+    monkeypatch.setattr(
+        payments_module,
+        "stripe",
+        SimpleNamespace(
+            api_key=None,
+            checkout=SimpleNamespace(Session=_CheckoutSessionApi),
+        ),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/payments/checkout-session",
+        json={
+            "amount_cents": 1663,
+            "currency": "gbp",
+            "description": "ErrandBridge payment",
+            "native_return": True,
+            "metadata": {"kind": "payment"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert created["success_url"] == (
+        "https://api.errandbridge.com/payments/native-return/payment/success"
+        "?session_id={CHECKOUT_SESSION_ID}"
+    )
+    assert created["cancel_url"] == (
+        "https://api.errandbridge.com/payments/native-return/payment/cancel"
+    )
+    assert created["payment_intent_data"]["capture_method"] == "manual"
+
+
 def test_stripe_webhook_accepts_payload_without_metadata():
     client = TestClient(app)
     payload = {
@@ -140,6 +207,20 @@ def test_payments_health_reports_not_configured_when_missing_env(monkeypatch):
     assert data["provider"] == "stripe"
     assert data["configured"] is False
     assert data["subscription_configured"] is False
+    assert data["livemode"] is None
+
+
+def test_payments_health_reports_test_mode_without_exposing_key(monkeypatch):
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_" + "test_not-a-real-secret")
+
+    client = TestClient(app)
+    response = client.get("/payments/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is True
+    assert data["livemode"] is False
+    assert "secret" not in data
 
 
 def test_quote_checkout_uses_country_routing_for_nigeria():
@@ -223,5 +304,114 @@ def test_checkout_session_country_routing_overrides_client_currency(monkeypatch)
     assert metadata["client_requested_currency"] == "usd"
 
     payment_intent_metadata = created["payment_intent_data"]["metadata"]
+    assert created["payment_intent_data"]["capture_method"] == "manual"
     assert payment_intent_metadata["payment_country_code"] == "NG"
     assert payment_intent_metadata["payment_currency"] == "ngn"
+
+
+def test_checkout_session_test_charge_reaches_stripe_as_exactly_one_gbp(monkeypatch):
+    from app.routes import payments as payments_module
+
+    created = {}
+
+    class _CheckoutSessionApi:
+        @staticmethod
+        def create(**kwargs):
+            created.update(kwargs)
+            price_data = kwargs["line_items"][0]["price_data"]
+            return SimpleNamespace(
+                id="cs_test_one_gbp",
+                url="https://checkout.stripe.test/cs_test_one_gbp",
+                mode="payment",
+                currency=price_data["currency"],
+                amount_total=price_data["unit_amount"],
+                customer=None,
+                subscription=None,
+            )
+
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_" + "test_not-a-real-secret")
+    monkeypatch.setattr(
+        payments_module,
+        "stripe",
+        SimpleNamespace(
+            api_key=None,
+            checkout=SimpleNamespace(Session=_CheckoutSessionApi),
+        ),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/payments/checkout-session",
+        json={
+            # The frontend compensates for the backend's 0.8 price multiplier.
+            "amount_cents": 125,
+            "currency": "gbp",
+            "description": "ErrandBridge £1 payment test",
+            "metadata": {
+                "kind": "payment",
+                "test_charge": "true",
+                "test_charge_amount": "GBP 1.00",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    price_data = created["line_items"][0]["price_data"]
+    assert price_data["currency"] == "gbp"
+    assert price_data["unit_amount"] == 100
+    assert created["payment_intent_data"]["capture_method"] == "manual"
+    assert created["metadata"]["test_charge_amount"] == "GBP 1.00"
+
+
+def test_verify_session_accepts_manual_capture_authorization(monkeypatch):
+    from app.routes import payments as payments_module
+
+    intent = SimpleNamespace(
+        id="pi_test_authorized",
+        status="requires_capture",
+        capture_method="manual",
+    )
+    checkout_session = SimpleNamespace(
+        id="cs_test_authorized",
+        status="complete",
+        payment_status="unpaid",
+        mode="payment",
+        amount_total=100,
+        currency="gbp",
+        customer="cus_test",
+        customer_details=SimpleNamespace(email="client@example.com"),
+        subscription=None,
+        payment_intent=intent,
+        metadata={"kind": "payment"},
+        livemode=False,
+    )
+
+    class _CheckoutSessionApi:
+        @staticmethod
+        def retrieve(*args, **kwargs):
+            return checkout_session
+
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_" + "test_not-a-real-secret")
+    monkeypatch.setattr(
+        payments_module,
+        "stripe",
+        SimpleNamespace(
+            api_key=None,
+            checkout=SimpleNamespace(Session=_CheckoutSessionApi),
+        ),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/payments/verify-session",
+        json={"session_id": "cs_test_authorized"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["paid"] is True
+    assert data["authorized"] is True
+    assert data["captured"] is False
+    assert data["payment_intent_status"] == "requires_capture"
+    assert data["capture_method"] == "manual"
+    assert data["livemode"] is False
